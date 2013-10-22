@@ -1,9 +1,9 @@
 #-------------------------------------------------------------------------------
 #
 # Project: EOxServer <http://eoxserver.org>
-# Authors: Stephan Krause <stephan.krause@eox.at>
+# Authors: Fabian Schindler <fabian.schindler@eox.at>
 #          Stephan Meissl <stephan.meissl@eox.at>
-#          Fabian Schindler <fabian.schindler@eox.at>
+#          Stephan Krause <stephan.krause@eox.at>
 #
 #-------------------------------------------------------------------------------
 # Copyright (C) 2011 EOX IT Services GmbH
@@ -27,77 +27,88 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from eoxserver.backends.models import (
-    Location, FTPStorage, RasdamanStorage, LocalPath, 
-    RemotePath, RasdamanLocation, CacheFile, 
-) 
-
+from django import forms
 from django.contrib import admin
 
+from eoxserver.backends.component import BackendComponent, env
+from eoxserver.backends import models
+
+
 #===============================================================================
-# Generic Storage Admin (Abstract!)
+# choice helpers
 #===============================================================================
+
+
+def get_format_choices():
+    backend_component = BackendComponent(env)
+    return map(lambda r: (r.name, r.get_supported_formats()), backend_component.data_readers)
+
+
+def get_package_format_choices():
+    backend_component = BackendComponent(env)
+    return map(lambda p: (p.name, p.name), backend_component.packages)
+
+
+def get_storage_type_choices():
+    backend_component = BackendComponent(env)
+    return map(lambda p: (p.name, p.name), backend_component.storages)
+
+
+#===============================================================================
+# Forms
+#===============================================================================
+
+
+class StorageForm(forms.ModelForm):
+    """ Form for `Storages`. Overrides the `format` formfield and adds choices
+        dynamically.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(StorageForm, self).__init__(*args, **kwargs)
+        self.fields['storage_type'] = forms.ChoiceField(
+            choices=[("---------", None)] + get_storage_type_choices()
+        )
+
+
+class LocationForm(forms.ModelForm):
+    """ Form for `Locations`. Overrides the `format` formfield and adds choices
+        dynamically.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(LocationForm, self).__init__(*args, **kwargs)
+        #self.fields['format'] = forms.ChoiceField(
+        #    choices=[("---------", None)] + get_format_choices()
+        #)
+
+
+class PackageForm(forms.ModelForm):
+    """ Form for `Packages`. Overrides the `format` formfield and adds choices
+        dynamically.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(PackageForm, self).__init__(*args, **kwargs)
+        self.fields['format'] = forms.ChoiceField(
+            choices=[("---------", None)] + get_package_format_choices()
+        )
+
+
+#===============================================================================
+# Admins
+#===============================================================================
+
 
 class StorageAdmin(admin.ModelAdmin):
-    def save_model(self, request, obj, form, change):
-        obj.storage_type = self.model.STORAGE_TYPE
-        obj.save()
+    form = StorageForm
+    model = models.Storage
 
-#===============================================================================
-# Local Path
-#===============================================================================
+admin.site.register(models.Storage, StorageAdmin)
 
-class LocalPathAdmin(admin.ModelAdmin):
-    model = LocalPath
-    
-    list_display = ("location_type", "path",)
-    list_editable = ("path",)
 
-admin.site.register(LocalPath, LocalPathAdmin)
+class PackageAdmin(admin.ModelAdmin):
+    form = PackageForm
+    model = models.Package
 
-#===============================================================================
-# FTP Storage Admin
-#===============================================================================
-
-class RemotePathInline(admin.TabularInline):
-    model = RemotePath
-    extra = 1
-class FTPStorageAdmin(StorageAdmin):
-    inlines = (RemotePathInline, )
-
-class RemotePathAdmin(admin.ModelAdmin):
-    model = RemotePath
-    
-    list_display = ("location_type", "path",)
-    list_editable = ("path",)
-
-admin.site.register(FTPStorage, FTPStorageAdmin)
-admin.site.register(RemotePath, RemotePathAdmin)
-
-#===============================================================================
-# Rasdaman Storage Admin
-#===============================================================================
-
-class RasdamanLocationInline(admin.TabularInline):
-    model = RasdamanLocation
-    extra = 1
-class RasdamanStorageAdmin(StorageAdmin):
-    inlines = (RasdamanLocationInline,)
-
-class RasdamanLocationAdmin(admin.ModelAdmin):
-    model = RasdamanLocation
-    
-    list_display = ("location_type", "collection", "oid")
-    list_editable = ("collection", "oid")
-    
-admin.site.register(RasdamanStorage, RasdamanStorageAdmin)
-admin.site.register(RasdamanLocation, RasdamanLocationAdmin)
-
-#===============================================================================
-# Cache File Admin
-#===============================================================================
-
-class CacheFileAdmin(admin.ModelAdmin):
-    pass
-
-admin.site.register(CacheFile, CacheFileAdmin)
+admin.site.register(models.Package, PackageAdmin)

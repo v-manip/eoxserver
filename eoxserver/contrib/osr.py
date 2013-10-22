@@ -33,5 +33,58 @@ try:
 except ImportError:
     from osr import *
 
+_SpatialReference = SpatialReference
+
+class SpatialReference(object):
+    """ Extension to the original SpatialReference class.
+    """
+
+    def __init__(self, raw=None, format=None):
+        self.sr = sr = _SpatialReference()
+        if raw is not None:
+            format = format.upper() if format is not None else None
+            if format == "WKT":
+                sr.ImportFromWkt(raw)
+            elif isinstance(raw, int) or format == "EPSG":
+                sr.ImportFromEPSG(int(raw))
+            else:
+                sr.SetFromUserInput(raw)
+
+    @property
+    def proj(self):
+        return self.sr.ExportToProj4()
+
+    @property
+    def wkt(self):
+        return self.sr.ExportToWkt()
+
+    @property
+    def xml(self):
+        return self.sr.ExportToXML()
+
+    @property
+    def url(self):
+        # TODO: what about other authorities than EPSG?
+        return "http://www.opengis.net/def/crs/EPSG/0/%d" % self.srid
+
+    @property
+    def srid(self):
+        """ Convenience function that tries to get the SRID of the projection.
+        """
+
+        if self.sr.IsGeographic():
+            cstype = 'GEOGCS'
+        else:
+            cstype = 'PROJCS'
+
+        return int(self.sr.GetAuthorityCode(cstype))
+
+    @property
+    def swap_axes(self):
+        # TODO:
+        pass
+    
+    def __getattr__(self, name):
+        return getattr(self.sr, name)
 
 UseExceptions()

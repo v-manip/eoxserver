@@ -1,7 +1,8 @@
 #-------------------------------------------------------------------------------
 #
 # Project: EOxServer <http://eoxserver.org>
-# Authors: Stephan Krause <stephan.krause@eox.at>
+# Authors: Fabian Schindler <fabian.schindler@eox.at>
+#          Stephan Krause <stephan.krause@eox.at>
 #          Stephan Meissl <stephan.meissl@eox.at>
 #
 #-------------------------------------------------------------------------------
@@ -30,76 +31,58 @@
 function is ows() which handles all incoming OWS requests"""
 
 import logging
+import traceback
 
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.conf import settings
 
-from eoxserver.core.system import System
-from eoxserver.services.owscommon import OWSCommonHandler
-from eoxserver.services.requests import OWSRequest
-from eoxserver.services.auth.base import getPDP
+from eoxserver.services.ows.component import ServiceComponent, env
 
 
 logger = logging.getLogger(__name__)
 
 def ows(request):
-    """
-    This function handles all incoming OWS requests.
-    
-    It prepares the system by a call to 
-    :meth:`eoxserver.core.system.System.init` and generates
-    an :class:`~.OWSRequest` object containing the request parameters and
-    passes the handling on to an instance of :class:`~.OWSCommonHandler`.
-    
-    If security handling is enabled, the Policy Decision Point (PDP) is
-    called first in order to determine if the request is authorized. Otherwise
-    the response of the PDP is sent back to the client. See also
-    :mod:`eoxserver.services.auth.base`.
+    """ Main entry point for OWS requests against EOxServer. It uses the OWS 
+        component to dynamically determine the handler for this request. 
+        If an exception occurs during the handling of the request, an exception
+        handler is determined and dispatched.
+
+        Any response of the service handler and exception handler is transformed
+        to a django HttpResponse to adhere the required interface.
     """
 
-    if request.method == 'GET':
-        ows_req = OWSRequest(
-            http_req=request,
-            params=request.GET,
-            param_type="kvp"
-        )
-    elif request.method == 'POST':
-        ows_req = OWSRequest(
-            http_req=request,
-            params=request.raw_post_data,
-            param_type="xml"
-        )
-    else:
-        raise Exception("Unsupported request method '%s'" % request.method)
+    component = ServiceComponent(env)
 
-    System.init()
-    
-    pdp = getPDP()
-    
-    if pdp:
-        auth_resp = pdp.authorize(ows_req)
-    
-    if not pdp or auth_resp.authorized:
+    try:
+        handler = component.query_service_handler(request)
+        result = handler.handle(request)
+        default_status = 200
+    except Exception, e:
+        logger.debug(traceback.format_exc())
+        handler = component.query_exception_handler(request)
+        result = handler.handle_exception(request, e)
+        default_status = 400
+
+    # try to return a django compatible response
+    if isinstance(result, (HttpResponse, StreamingHttpResponse)):
+        return result
+
+    elif isinstance(result, basestring):
+        return HttpResponse(result)
+
+    # convert result to a django response
+    try:
+        content, content_type, status = result
+        return HttpResponse(
+            content=content, content_type=content_type, status=status
+        )
+    except ValueError:
+        pass
         
-        handler = OWSCommonHandler()
-
-        ows_resp = handler.handle(ows_req)
-
-        response = HttpResponse(
-            content=ows_resp.getContent(),
-            content_type=ows_resp.getContentType(),
-            status=ows_resp.getStatus()
+    try:
+        content, content_type = result
+        return HttpResponse(
+            content=content, content_type=content_type, status=default_status
         )
-        for header_name, header_value in ows_resp.headers.items():
-            response[header_name] = header_value
-
-    else:
-        response = HttpResponse(
-            content=auth_resp.getContent(),
-            content_type=auth_resp.getContentType(),
-            status=auth_resp.getStatus()
-        )
-        for header_name, header_value in auth_resp.headers.items():
-            response[header_name] = header_value
-
-    return response
+    except ValueError:
+        pass

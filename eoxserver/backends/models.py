@@ -1,8 +1,9 @@
 #-------------------------------------------------------------------------------
 #
 # Project: EOxServer <http://eoxserver.org>
-# Authors: Stephan Krause <stephan.krause@eox.at>
+# Authors: Fabian Schindler <fabian.schindler@eox.at>
 #          Stephan Meissl <stephan.meissl@eox.at>
+#          Stephan Krause <stephan.krause@eox.at>
 #
 #-------------------------------------------------------------------------------
 # Copyright (C) 2011 EOX IT Services GmbH
@@ -26,138 +27,62 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
+from django.core.exceptions import ValidationError
 from django.db import models
-from eoxserver.backends.validators import validate_path
+
 
 class Storage(models.Model):
+    """ Model to symbolize storages that provide file or other types of access
+        to data items and packages.
     """
-    This class describes the storage facility a collection of data is
-    stored on. Fields:
-    
-    * ``storage_type``: a string denoting the storage type
-    * ``name``: a string denoting the name of the storage
-    """
-    storage_type = models.CharField(max_length=32, editable=False)
-    name = models.CharField(max_length=256)
-    
-    def save(self, *args, **kwargs):
-        self.storage_type = self.STORAGE_TYPE
-        super(Storage, self).save(*args, **kwargs)
-
-class FTPStorage(Storage):
-    """
-    This class describes an FTP repository. It inherits from
-    :class:`Storage`. Additional fields:
-    
-    * ``host``: the host name
-    * ``port`` (optional): the port number
-    * ``user`` (optional): the user name to use
-    * ``passwd`` (optional): the password to use
-    """
-    
-    STORAGE_TYPE = "ftp"
-    
-    host = models.CharField(max_length=1024)
-    port = models.IntegerField(null=True, blank=True)
-    user = models.CharField(max_length=1024, null=True, blank=True)
-    passwd = models.CharField(max_length=128, null=True, blank=True)
-    
-class RasdamanStorage(Storage):
-    """
-    This class describes a rasdaman database access. It inherits from
-    :class:`Storage`. Additional fields:
-    
-    * ``host``: the host name
-    * ``port`` (optional): the port number
-    * ``user`` (optional): the user name to use
-    * ``passwd`` (optional): the password to use
-    """
-    
-    STORAGE_TYPE = "rasdaman"
-    
-    host = models.CharField(max_length=1024)
-    port = models.IntegerField(null=True, blank=True)
-    user = models.CharField(max_length=1024, null=True, blank=True)
-    passwd = models.CharField(max_length=128, null=True, blank=True)
-    db_name = models.CharField(max_length=128, null=True, blank=True)
-
-class Location(models.Model):
-    """
-    :class:`Location` is the base class for describing the physical or
-    logical location of a (general) resource relative to some storage.
-    Fields:
-    
-    * ``location_type``: a string denoting the type of location
-    """
-    location_type = models.CharField(max_length=32, editable=False)
+    url = models.CharField(max_length=1024)
+    storage_type = models.CharField(max_length=32)
     
     def __unicode__(self):
-        if self.location_type == "local":
-            return self.localpath.path
-        elif self.location_type == "rasdaman":
-            return "rasdaman:%s:%s" % (self.rasdamanlocation.collection, self.rasdamanlocation.oid)
-        elif self.location_type == "ftp":
-            return "ftp://%s/%s" % (self.remotepath.storage.host, self.remotepath.path)
-        else:
-            return "Unknown location type"
-        
-    def save(self, *args, **kwargs):
-        self.location_type = self.LOCATION_TYPE
-        super(Location, self).save(*args, **kwargs)
-    
-class LocalPath(Location):
+        return "%s: %s" % (self.storage_type, self.url)
+
+
+class BaseLocation(models.Model):
+    """ Abstract base type for everything that describes a locateable object.
     """
-    :class:`LocalPath` describes a path on the local file system. It
-    inherits from :class:`Location`. Fields:
+    location = models.CharField(max_length=1024)
+    format = models.CharField(max_length=64, null=True, blank=True)
     
-    * ``path``: a path on the local file system
+    storage = models.ForeignKey(Storage, null=True, blank=True)
+    package = None # placeholder
+
+    def clean(self):
+        if self.storage is not None and self.package is not None:
+            raise ValidationError(
+                "Only one of 'package' and 'storage' can be set."
+            )
+
+    class Meta:
+        abstract = True
+
+    def __unicode__(self):
+        if self.format:
+            return "%s (%s)" % (self.location, self.format)
+        return self.location
+
+
+class Package(BaseLocation):
+    """ Model for Packages. Packages are files that contain multiple files or 
+        provide access to multiple data items.
     """
-    LOCATION_TYPE = "local"
-    
-    path = models.CharField(max_length=1024, validators=[validate_path])
-    
-class RemotePath(Location):
-    """
-    :class:`RemotePath` describes a path on an FTP repository. It
-    inherits from :class:`Location`. Fields:
-    
-    * ``storage``: a foreign key of an :class:`FTPStorage` entry.
-    * ``path``: path on the repository
-    """
-    
-    LOCATION_TYPE = "ftp"
-    
-    storage = models.ForeignKey(FTPStorage, related_name="paths")
-    path = models.CharField(max_length=1024)
-    
-class RasdamanLocation(Location):
-    """
-    :class:`RasdamanLocation` describes the parameters for accessing a
-    rasdaman array. It inherits from :class:`Location`. Fields:
-    
-    * ``storage``: a foreign key of a :class:`RasdamanStorage` entry
-    * ``collection``: name of the rasdaman collection that contains the
-      array
-    * ``oid``: rasdaman OID of the array (note that this is a float)
-    """
-    
-    LOCATION_TYPE = "rasdaman"
-    
-    storage = models.ForeignKey(RasdamanStorage, related_name="rasdaman_locations")
-    collection = models.CharField(max_length=1024)  # comparable to table
-    oid = models.FloatField(null=True, blank=True) # float due to rasdaman architecture; comparable to array
-    
-class CacheFile(models.Model):
-    """
-    :class:`CacheFile` stores the whereabouts of a file held in the
-    cache. Fields:
-    
-    * ``location``: a link to a :class:`LocalPath` denoting the path
-      to the cached file
-    * ``size``: the size of the file in bytes, null if it is not known
-    * ``access_timestamp``: the time of the last access
+    package = models.ForeignKey("self", related_name="pakages", null=True, blank=True)
+
+
+class Dataset(models.Model):
+    """ Model for a set of associated data and metadata items.
     """
 
-    location = models.ForeignKey(LocalPath, related_name="cache_files")
-    size = models.IntegerField(null=True)
-    access_timestamp = models.DateTimeField()
+
+class DataItem(BaseLocation):
+    """ Model for locateable data items contributing to a dataset. Data items 
+        can be linked to either a storage or a package or none of both.
+    """
+
+    dataset = models.ForeignKey(Dataset, related_name="data_items", null=True, blank=True)
+    package = models.ForeignKey(Package, related_name="data_items", null=True, blank=True)
+    semantic = models.CharField(max_length=64)

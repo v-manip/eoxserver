@@ -228,21 +228,23 @@ class EOPEncoder(GMLEncoder):
         Note that the return value is only a minimal encoding with the
         mandatory elements.
         """
-        eo_id = eo_metadata.getEOID()
-        begin_time_iso = isotime(eo_metadata.getBeginTime())
-        end_time_iso = isotime(eo_metadata.getEndTime())
-        result_time_iso = isotime(eo_metadata.getEndTime()) # TODO isotime(datetime.now())
+        eo_id = eo_metadata.identifier
+        begin_time_iso = isotime(eo_metadata.begin_time)
+        end_time_iso = isotime(eo_metadata.end_time)
+        result_time_iso = isotime(eo_metadata.end_time) # TODO isotime(datetime.now())
         
         footprint = None
-        if eo_metadata.getType() == "eo.rect_stitched_mosaic":
-            for ds in eo_metadata.getDatasets():
-                if footprint is None:
-                    footprint = ds.getFootprint()
-                else:
-                    footprint = ds.getFootprint().union(footprint) 
-            
-        else:
-            footprint = eo_metadata.getFootprint()
+        # TODO:
+        #if eo_metadata.getType() == "eo.rect_stitched_mosaic":
+        #    for ds in eo_metadata.getDatasets():
+        #        if footprint is None:
+        #            footprint = ds.footprint
+        #        else:
+        #            footprint = ds.footprint.union(footprint) 
+        #    
+        #else:
+        
+        footprint = eo_metadata.footprint
             
         if poly is not None:
             footprint = footprint.intersection(poly)
@@ -302,18 +304,18 @@ class CoverageGML10Encoder(XMLEncoder):
         a rectified grid; :meth:`encodeReferenceableGrid` or
         :meth:`encodeRectifiedGrid` are called accordingly.
         """
-        if coverage.getType() == "eo.ref_dataset":
+        if type(coverage).__name__ == "ReferenceableDataset":
             return self._makeElement("gml", "domainSet", [
-                (self.encodeReferenceableGrid( coverage.getSize(), 
-                    coverage.getSRID(),
-                    "%s_grid" % coverage.getCoverageId()
+                (self.encodeReferenceableGrid( coverage.size, 
+                    coverage.srid,
+                    "%s_grid" % coverage.identifier
                 ),)
             ])
         else:
             return self._makeElement("gml", "domainSet", [
-                (self.encodeRectifiedGrid( coverage.getSize(),
-                    coverage.getExtent(), coverage.getSRID(),
-                    "%s_grid" % coverage.getCoverageId()
+                (self.encodeRectifiedGrid( coverage.size,
+                    coverage.extent, coverage.srid,
+                    "%s_grid" % coverage.identifier
                 ),)
             ])
     
@@ -484,12 +486,12 @@ class CoverageGML10Encoder(XMLEncoder):
         SWE Common as an :mod:`xml.dom.minidom` element. The ``coverage``
         parameter shall implement :class:`~.EOCoverageInterface`.
         """
-        range_type = coverage.getRangeType()
+        range_type = coverage.range_type
         
         return self._makeElement("gmlcov", "rangeType", [
             ("swe", "DataRecord", [
                 (self.encodeRangeTypeField(range_type, band),)
-                for band in range_type.bands
+                for band in range_type.bands.all()
             ])
         ])
 
@@ -508,14 +510,14 @@ class CoverageGML10Encoder(XMLEncoder):
                 ("swe", "description", band.description),
 # TODO: Not in sweCommon anymore
 #                ("swe", "name", band.name),
-                ("swe", "nilValues", [(self.encodeNilValue(nil_value),) for nil_value in band.nil_values]),
+                ("swe", "nilValues", [(self.encodeNilValue(nil_value),) for nil_value in band.nil_values.all()]),
                 ("swe", "uom", [
                     ("", "@code", band.uom)
                 ]),
                 ("swe", "constraint", [
                     ("swe", "AllowedValues", [
-                        ("swe", "interval", "%s %s" % range_type.getAllowedValues()),
-                        ("swe", "significantFigures", range_type.getSignificantFigures())
+                        ("swe", "interval", "%s %s" % band.allowed_values),
+                        ("swe", "significantFigures", band.significant_figures)
                     ])
                 ])
             ])
@@ -649,11 +651,24 @@ class WCS20EOAPEncoder(WCS20Encoder):
         
         poly_intersection = None
         if poly is not None:
-            poly_intersection = coverage.getFootprint().intersection(poly)
+            poly_intersection = coverage.footprint.intersection(poly)
         
         eop_encoder = EOPEncoder()
+        data_items = list(coverage.data_items.filter(
+            semantic="metadata", format="eogml"
+        ))
         
-        if coverage.getEOGML():
+        if len(data_items) == 1:
+
+
+
+
+
+
+
+
+
+            
             dom = minidom.parseString(coverage.getEOGML())
             earth_observation = dom.documentElement
             if poly_intersection is not None:
@@ -746,8 +761,15 @@ class WCS20EOAPEncoder(WCS20Encoder):
         # retrieve the format registry 
         FormatRegistry = getFormatRegistry() 
 
-        # get the coverage's source format 
-        source_mime   = coverage.getData().getSourceFormat() 
+        # get the coverage's source format
+        source_mime = None
+
+        # TODO: don't get the first format
+        for data_item in coverage.data_items.filter(semantic__startswith="bands"):
+            if data_item.format:
+                source_mime = data_item.format
+                break
+
         source_format = FormatRegistry.getFormatByMIME( source_mime ) 
 
         # map the source format to the native one 
@@ -759,21 +781,21 @@ class WCS20EOAPEncoder(WCS20Encoder):
             sub_nodes = []
 
         sub_nodes.extend([
-            ("@gml", "id", self._getGMLId(coverage.getCoverageId())),
-            (self.encodeBoundedBy(coverage.getExtent(),coverage.getSRID()),),
-            ("wcs", "CoverageId", coverage.getCoverageId()),
+            ("@gml", "id", self._getGMLId(coverage.identifier)),
+            (self.encodeBoundedBy(coverage.extent, coverage.srid),),
+            ("wcs", "CoverageId", coverage.identifier),
             (self.encodeEOMetadata(coverage),),
             (self.encodeDomainSet(coverage),),
             (self.encodeRangeType(coverage),),
             ("wcs", "ServiceParameters", [
-                ("wcs", "CoverageSubtype", coverage.getEOCoverageSubtype()),
+                ("wcs", "CoverageSubtype", coverage.real_type.__name__),
                 ("wcs", "nativeFormat" , native_format.mimeType ) 
             ])
         ])
         return self._makeElement("wcs", "CoverageDescription", sub_nodes)
 
     #TODO: remove once fully supported by mapserver 
-    def encodeSupportedCRSs( self ) : 
+    def encodeSupportedCRSs(self) : 
         """
         This method returns list of :mod:`xml.dom.minidom` elements containing
         the supported CRSes for a service. The CRSes are retrieved using
@@ -920,9 +942,9 @@ class WCS20EOAPEncoder(WCS20Encoder):
         only input.
         """
         return self._makeElement("wcseo", "DatasetSeriesDescription", [
-            ("@gml", "id", self._getGMLId(dataset_series.getEOID())),
-            (self.encodeBoundedBy(dataset_series.getWGS84Extent()),),
-            ("wcseo", "DatasetSeriesId", dataset_series.getEOID()),
+            ("@gml", "id", self._getGMLId(dataset_series.identifier)),
+            (self.encodeBoundedBy(dataset_series.extent_wgs84),),
+            ("wcseo", "DatasetSeriesId", dataset_series.identifier),
             (self.encodeTimePeriod(dataset_series),),
 #            ("wcseo", "ServiceParameters", [
 # TODO: Include all referenced EO Coverages:            
@@ -1040,9 +1062,9 @@ class WCS20EOAPEncoder(WCS20Encoder):
         """
         timeFormat = "%Y-%m-%dT%H:%M:%S"
 
-        teoid = "%s_timeperiod" % dataset_series.getEOID()
-        start = dataset_series.getBeginTime().strftime(timeFormat)
-        stop  = dataset_series.getEndTime().strftime(timeFormat)
+        teoid = "%s_timeperiod" % dataset_series.identifier
+        start = dataset_series.begin_time.strftime(timeFormat)
+        stop  = dataset_series.end_time.strftime(timeFormat)
 
         return self._makeElement("gml", "TimePeriod", [
             ("@gml", "id", self._getGMLId(teoid) ),
@@ -1057,7 +1079,7 @@ class WCS20EOAPEncoder(WCS20Encoder):
         """
         return self._makeElement("wcseo", "DatasetSeriesSummary", [
             (self.encodeWGS84BoundingBox(dataset_series),),
-            ("wcseo", "DatasetSeriesId", dataset_series.getEOID()),
+            ("wcseo", "DatasetSeriesId", dataset_series.identifier),
             (self.encodeTimePeriod(dataset_series),)
         ])
 

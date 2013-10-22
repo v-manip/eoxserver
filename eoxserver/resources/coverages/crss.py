@@ -35,7 +35,8 @@ import re
 import logging
 
 from eoxserver.contrib import osr
-from eoxserver.core.system import System
+from eoxserver.core.config import get_eoxserver_config
+from eoxserver.core.decoders import config
 
 
 logger = logging.getLogger(__name__)
@@ -275,9 +276,8 @@ def getSupportedCRS_WMS( format_function = asShortCode ) :
     global __SUPPORTED_CRS_WMS
 
     if __SUPPORTED_CRS_WMS is None : 
-
-        __SUPPORTED_CRS_WMS = __parseListOfCRS( System.getConfig() , 
-                "services.ows.wms","supported_crs")
+        reader = CRSsConfigReader(get_eoxserver_config())
+        __SUPPORTED_CRS_WMS = reader.supported_crss_wms
 
     # return formated list of EPSG codes 
     return map( format_function , __SUPPORTED_CRS_WMS ) 
@@ -290,9 +290,8 @@ def getSupportedCRS_WCS( format_function = asShortCode ) :
     global __SUPPORTED_CRS_WCS
 
     if __SUPPORTED_CRS_WCS is None : 
-
-        __SUPPORTED_CRS_WCS = __parseListOfCRS( System.getConfig() , 
-                "services.ows.wcs","supported_crs")
+        reader = CRSsConfigReader(get_eoxserver_config())
+        __SUPPORTED_CRS_WCS = reader.supported_crss_wcs
 
     # return formated list of EPSG codes 
     return map( format_function , __SUPPORTED_CRS_WCS ) 
@@ -346,9 +345,38 @@ def isProjected( epsg ) :
     return bool( spat_ref.IsProjected() ) 
 
 
+def crs_bounds(srid):
+    """ Get the maximum bounds of the CRS. """
+
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(srid)
+        
+    if srs.IsGeographic():
+        return (-180.0, -90.0, 180.0, 90.0)
+    else:
+        earth_circumference = 2 * math.pi * srs.GetSemiMajor()
+    
+        return (
+            -earth_circumference,
+            -earth_circumference,
+            earth_circumference,
+            earth_circumference
+        )
+
+def crs_tolerance(srid):
+    """ Get the "tolerance" of the CRS """
+
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(srid)
+        
+    if srs.IsGeographic():
+        return 1e-8
+    else:
+        return 1e-2
+
 #-------------------------------------------------------------------------------
 
-def __parseListOfCRS( config , section , field ) : 
+def _parseListOfCRS(raw_value) : 
     """ parse CRS configuartion """ 
 
     # validate and convert to EPSG code 
@@ -356,18 +384,23 @@ def __parseListOfCRS( config , section , field ) :
         # validate the input CRS whether recognized by GDAL/Proj 
         rv = validateEPSGCode( v ) 
         if not rv : 
-            logger.warning( "Invalid EPSG code \"%s\" ! This CRS will be " \
-                "ignored! section=\"%s\" item=\"%s\""%( str(v).strip() , 
-                section , field ) )
+            logger.warning(
+                "Invalid EPSG code '%s'! This CRS will be ignored!" % str(v).strip()
+            )
         return rv
 
-    # read the configuration 
-    tmp = config.getConfigValue( section , field )
-
     # strip comments 
-    tmp = "".join([ l.partition("#")[0] for l in tmp.split("\n") ])
+    tmp = "".join([ l.partition("#")[0] for l in raw_value.split("\n") ])
 
     # filter out invalid EPSG codes and covert them to integer 
     return map( int , filter( checkCode , tmp.split(",") ) ) 
 
 #-------------------------------------------------------------------------------
+
+
+class CRSsConfigReader(config.Reader):
+    section = "services.ows.wms"
+    supported_crss_wms = config.Option("supported_crs", type=_parseListOfCRS)
+
+    section = "services.ows.wcs"
+    supported_crss_wcs = config.Option("supported_crs", type=_parseListOfCRS)

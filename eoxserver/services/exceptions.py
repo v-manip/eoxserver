@@ -26,50 +26,96 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from eoxserver.core.exceptions import EOxSException
 
-class InvalidRequestException(EOxSException):
+class InvalidRequestException(Exception):
     """
     This exception indicates that the request was invalid and an exception
     report shall be returned to the client.
     
     The constructor takes three arguments, namely ``msg``, the error message,
-    ``error_code``, the error code, and ``locator``, which is needed in OWS
+    ``code``, the error code, and ``locator``, which is needed in OWS
     exception reports for indicating which part of the request produced the
     error.
     
     How exactly the exception reports are constructed is not defined by the
     exception, but by exception handlers.
     """
-    def __init__(self, msg, error_code, locator):
+    def __init__(self, msg, code=None, locator=None):
         super(InvalidRequestException, self).__init__(msg)
-        
-        self.msg = msg
-        self.error_code = error_code
+    
+        self.code = code or "InvalidRequest"
         self.locator = locator
     
     def __str__(self):
-        return "Invalid Request: ErrorCode: %s; Locator: %s; Message: '%s'" % (
-            self.error_code, self.locator, self.msg
+        return "Invalid Request: Code: %s; Locator: %s; Message: '%s'" % (
+            self.code, self.locator, 
+            super(InvalidRequestException, self).__str__()
         )
 
-class VersionNegotiationException(EOxSException):
+class VersionNegotiationException(Exception):
     """
     This exception indicates that version negotiation fails. Such errors can
     happen with OWS 2.0 compliant "new-style" version negotation.
     """
-    pass
+    code = "VersionNegotiationFailed"
 
-class InvalidAxisLabelException(EOxSException):
+
+class LocatorListException(Exception):
+    """ Base class for exceptions that report that a number of items are missing
+        or invalid
+    """
+    def __init__(self, items):
+        self.items = items
+
+    @property
+    def locator(self):
+        "This property provides a list of all missing/invalid items."
+        return " ".join(self.items)
+
+
+class InvalidAxisLabelException(LocatorListException):
     """
     This exception indicates that an invalid axis name was chosen in a WCS
     2.0 subsetting parameter.
     """
-    pass
+    code = "InvalidAxisLabels"
 
-class InvalidSubsettingException(EOxSException):
+
+class InvalidSubsettingException(Exception):
     """
     This exception indicates an invalid WCS 2.0 subsetting parameter was
     submitted.
     """
-    pass
+    code = "InvalidSubsetting"
+    locator = "subset"
+
+
+class NoSuchCoverageException(LocatorListException):
+    """ This exception indicates that the requested coverage(s) do not 
+        exist.
+    """
+    code = "NoSuchCoverage"
+
+    def __str__(self):
+        return "Could not find Coverage%s with ID: %s" % (
+            " " if len(self.items) == 1 else "s", ", ".join(self.items)
+        )
+
+
+class NoSuchDatasetSeriesOrCoverageException(LocatorListException):
+    """ This exception indicates that the requested coverage(s) or dataset 
+        series do not exist.
+    """
+    code = "NoSuchDatasetSeriesOrCoverage"
+
+    def __str__(self):
+        return "Could not find Coverage%s or Dataset Series with ID: %s" % (
+            " " if len(self.items) == 1 else "s", ", ".join(self.items)
+        )
+
+
+class OperationNotSupportedException(Exception):
+    """ Exception to be thrown when some operations are not supported or 
+        disabled.
+    """
+    code = "OperationNotSupported"
