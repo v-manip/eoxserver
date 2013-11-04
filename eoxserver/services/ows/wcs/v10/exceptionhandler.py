@@ -35,7 +35,7 @@ from eoxserver.core.decoders import (
 )
 
 
-class WC10ExceptionHandler(Component):
+class WCS10ExceptionHandler(Component):
     implements(ExceptionHandlerInterface)
 
     service = "WCS"

@@ -32,18 +32,17 @@ from itertools import chain
 
 from django.core.exceptions import ValidationError
 from django.contrib.gis.db import models
-from django.contrib.gis.geos import MultiPolygon, Polygon
-
-from django.db.models import Min, Max
-from django.contrib.gis.db.models import Union
 
 from eoxserver.core import models as base
 from eoxserver.contrib import gdal, osr
 from eoxserver.backends import models as backends
-from eoxserver.resources.coverages.util import detect_circular_reference
+from eoxserver.resources.coverages.util import (
+    detect_circular_reference, collect_eo_metadata
+)
 
 
 logger = logging.getLogger(__name__)
+
 
 #===============================================================================
 # Helpers
@@ -59,54 +58,16 @@ def iscollection(eo_object):
     return issubclass(eo_object.real_type, Collection)
 
 
-def collect_eo_metadata(qs, insert=None, exclude=None, bbox=False):
-    """ Helper function to collect EO metadata from all EOObjects in a queryset, 
-    plus additionals from a list and exclude others from a different list. If 
-    bbox is `True` then the returned polygon will only be a minimal bounding box
-    of the collected footprints.
-    """
-
-    values = qs.exclude(
-        pk__in=[eo_object.pk for eo_object in exclude or ()]
-    ).aggregate(
-        begin_time=Min("begin_time"), end_time=Max("end_time"),
-        footprint=Union("footprint")
-    )
-
-    begin_time, end_time, footprint = (
-        values["begin_time"], values["end_time"], values["footprint"]
-    )
-
-    for eo_object in insert or ():
-        if begin_time is None:
-            begin_time = eo_object.begin_time
-        elif eo_object.begin_time is not None:
-            begin_time = min(begin_time, eo_object.begin_time)
-
-        if end_time is None:
-            end_time = eo_object.end_time
-        elif eo_object.end_time is not None:
-            end_time = max(end_time, eo_object.end_time)
-
-        if footprint is None:
-            footprint = eo_object.footprint
-        elif eo_object.footprint is not None:
-            footprint = footprint.union(eo_object.footprint)
-
-    if not isinstance(footprint, MultiPolygon) and footprint is not None:
-        footprint = MultiPolygon(footprint)
-
-    if bbox and footprint is not None:
-        footprint = MultiPolygon(Polygon.from_bbox(footprint.extent))
-
-    return begin_time, end_time, footprint
-
-
 #===============================================================================
 # Metadata classes
 #===============================================================================
 
 class Projection(models.Model):
+    """ Model for elaborate projection definitions. The `definition` is valid 
+        for a given `format`. The `spatial_reference` property returns an
+        osr.SpatialReference for this Projection.
+    """
+
     name = models.CharField(max_length=64, unique=True)
     format = models.CharField(max_length=16)
 
@@ -125,6 +86,10 @@ class Projection(models.Model):
 
 
 class Extent(models.Model):
+    """ Model mix-in for spatial objects which have a 2D Bounding Box expressed
+        in a projection given either by a SRID or a whole `Projection` object.
+    """
+
     min_x = models.FloatField()
     min_y = models.FloatField()
     max_x = models.FloatField()
@@ -165,6 +130,10 @@ class Extent(models.Model):
 
 
 class EOMetadata(models.Model):
+    """ Model mix-in for objects that have EO metadata (timespan and footprint)
+        associated.
+    """
+
     begin_time = models.DateTimeField(null=True, blank=True)
     end_time = models.DateTimeField(null=True, blank=True)
     footprint = models.MultiPolygonField(null=True, blank=True)
@@ -184,12 +153,6 @@ class EOMetadata(models.Model):
         abstract = True
 
 
-class AdditionalEOMetadata(backends.DataItem):
-    #semantic = models.CharField(max_length=32, null=True, blank=True)
-    #coverage = models.ForeignKey("Coverage", related_name="additional_eo_metadata_set")
-    pass
-
-
 class DataSource(backends.Dataset):
     pattern = models.CharField(max_length=32, null=False, blank=False)
     collection = models.ForeignKey("Collection")
@@ -199,18 +162,33 @@ class DataSource(backends.Dataset):
 # Base class EOObject
 #===============================================================================
 
-# TODO: encapsulate "casting" mechanism
+
+# registry to map the integer type IDs to the model types and vice-versa.
+EO_OBJECT_TYPE_REGISTRY = {}
+
 
 class EOObject(base.Castable, EOMetadata):
+    """ Base class for EO objects. All EO objects share a pool of unique 
+        `identifiers`.
+    """
+
     identifier = models.CharField(max_length=256, unique=True, null=False, blank=False)
+
+    # this field is required to be named 'real_content_type'
+    real_content_type = models.PositiveSmallIntegerField()
+    type_registry = EO_OBJECT_TYPE_REGISTRY
+
 
     objects = models.GeoManager()
 
+
     def __init__(self, *args, **kwargs):
+        # TODO: encapsulate the change-tracking
         super(EOObject, self).__init__(*args, **kwargs)
         self._original_begin_time = self.begin_time
         self._original_end_time = self.end_time
         self._original_footprint = self.footprint
+
 
     def save(self, *args, **kwargs):
         super(EOObject, self).save(*args, **kwargs)
@@ -229,7 +207,6 @@ class EOObject(base.Castable, EOMetadata):
         self._original_footprint = self.footprint
 
 
-
     def __unicode__(self):
         return "%s (%s)" % (self.identifier, self.real_type._meta.verbose_name)
 
@@ -239,13 +216,15 @@ class EOObject(base.Castable, EOMetadata):
         verbose_name_plural = "EO Objects"
 
 
-
 #===============================================================================
 # RangeType structure
 #===============================================================================
 
 
 class NilValueSet(models.Model):
+    """ Collection model for nil values.
+    """
+
     name = models.CharField(max_length=64)
     data_type = models.PositiveIntegerField()
 
@@ -279,48 +258,76 @@ class NilValueSet(models.Model):
         verbose_name = "Nil Value Set"
 
 
+NIL_VALUE_CHOICES = (
+    ("http://www.opengis.net/def/nil/OGC/0/inapplicable", "Inapplicable (There is no value)"),
+    ("http://www.opengis.net/def/nil/OGC/0/missing", "Missing"),
+    ("http://www.opengis.net/def/nil/OGC/0/template", "Template (The value will be available later)"),
+    ("http://www.opengis.net/def/nil/OGC/0/unknown", "Unknown"),
+    ("http://www.opengis.net/def/nil/OGC/0/withheld", "Withheld (The value is not divulged)"),
+    ("http://www.opengis.net/def/nil/OGC/0/AboveDetectionRange", "Above detection range"),
+    ("http://www.opengis.net/def/nil/OGC/0/BelowDetectionRange", "Below detection range")
+)
+
 class NilValue(models.Model):
-    value_string = models.CharField(max_length=64)
-    reason = models.CharField(max_length=64, null=False, blank=False)
+    """ Single nil value contributing to a nil value set. 
+    """
+
+    raw_value = models.CharField(max_length=64, help_text="The string representation of the nil value.")
+    reason = models.CharField(max_length=64, null=False, blank=False, choices=NIL_VALUE_CHOICES, help_text="A string identifier (commonly a URI or URL) for the reason of this nil value.")
     
     nil_value_set = models.ForeignKey(NilValueSet, related_name="nil_values")
 
     def __unicode__(self):
-        return "%s (%s)" % (self.reason, self.value_string)
+        return "%s (%s)" % (self.reason, self.raw_value)
 
     @property
     def value(self):
         """ Get the parsed python value from the saved value string.
         """
         dt = self.nil_value_set.data_type
+        is_float   = False 
         is_complex = False
 
-        if dt in (gdal.GDT_INTEGRAL_TYPES):
-            value =  int(self.value_string)
-        elif dt in gdal.GDT_FLOAT_TYPES:
-            value =  float(self.value_string)
-        elif dt in gdal.GDT_COMPLEX_TYPES:
-            value =  complex(self.value_string)
+        if dt in gdal.GDT_INTEGRAL_TYPES :
+            value =  int(self.raw_value)
+
+        elif dt in gdal.GDT_FLOAT_TYPES :
+            value =  float(self.raw_value)
+            is_float = True 
+
+        elif dt in gdal.GDT_INTEGRAL_COMPLEX_TYPES : 
+            value =  complex(self.raw_value)
             is_complex = True
+
+        elif dt in gdal.GDT_FLOAT_COMPLEX_TYPES : 
+            value =  complex(self.raw_value)
+            is_complex = True
+            is_float = True 
+
         else:
             value = None
 
-        limits = gdal.GDT_NUMERIC_LIMITS.get(dt)
+        # range check makes sense for integral values only 
+        if not is_float : 
 
-        if limits and value is not None:
-            def within(v, low, high):
-                return (v >= low and v <= high)
+            limits = gdal.GDT_NUMERIC_LIMITS.get(dt)
 
-            error = ValueError(
-                "Stored value is out of the limits for the data type"
-            )
-            if not is_complex and not within(value, *limits) :
-                raise error
-            elif is_complex:
-                if (not within(value.real, limits[0].real, limits[1].real)
-                    or not within(value.real, limits[0].real, limits[1].real)):
+            if limits and value is not None:
+                def within(v, low, high):
+                    return (v >= low and v <= high)
+
+                error = ValueError(
+                    "Stored value is out of the limits for the data type"
+                )
+                if not is_complex and not within(value, *limits) :
                     raise error
+                elif is_complex:
+                    if (not within(value.real, limits[0].real, limits[1].real)
+                        or not within(value.real, limits[0].real, limits[1].real)):
+                        raise error
+
         return value
+
 
     def clean(self):
         """ Check that the value can be parsed.
@@ -335,6 +342,9 @@ class NilValue(models.Model):
 
 
 class RangeType(models.Model):
+    """ Collection model for bands.
+    """
+
     name = models.CharField(max_length=32, null=False, blank=False, unique=True)
 
 
@@ -365,6 +375,9 @@ class RangeType(models.Model):
 
 
 class Band(models.Model):
+    """ Model for storing band related metadata. 
+    """
+
     index = models.PositiveSmallIntegerField()
     name = models.CharField(max_length=32, null=False, blank=False)
     identifier = models.CharField(max_length=32, null=False, blank=False)
@@ -414,8 +427,9 @@ class Band(models.Model):
 
 
 class Coverage(EOObject, Extent, backends.Dataset):
-    """ Common base class for all coverage types.
+    """ Common base model for all coverage types.
     """
+
     size_x = models.FloatField()
     size_y = models.FloatField()
     
@@ -433,6 +447,9 @@ class Coverage(EOObject, Extent, backends.Dataset):
     
 
 class Collection(EOObject):
+    """ Base model for all collections.
+    """
+
     eo_objects = models.ManyToManyField(EOObject, through="EOObjectToCollectionThrough", related_name="collections")
 
     objects = models.GeoManager()
@@ -602,6 +619,8 @@ class EOObjectToCollectionThrough(models.Model):
 
 
 class RectifiedDataset(Coverage):
+    """ Coverage type using a rectified grid.
+    """
     
     objects = models.GeoManager()
     
@@ -609,8 +628,12 @@ class RectifiedDataset(Coverage):
         verbose_name = "Rectified Dataset"
         verbose_name_plural = "Rectified Datasets"
 
+EO_OBJECT_TYPE_REGISTRY[10] = RectifiedDataset
+
 
 class ReferenceableDataset(Coverage):
+    """ Coverage type using a referenceable grid.
+    """
     
     objects = models.GeoManager()
     
@@ -618,8 +641,13 @@ class ReferenceableDataset(Coverage):
         verbose_name = "Referenceable Dataset"
         verbose_name_plural = "Referenceable Datasets"
 
+EO_OBJECT_TYPE_REGISTRY[11] = ReferenceableDataset
+
 
 class RectifiedStitchedMosaic(Coverage, Collection):
+    """ Collection type which can entail rectified datasets that share a common 
+        range type and are on the same grid.
+    """
     
     objects = models.GeoManager()
     
@@ -659,9 +687,14 @@ class RectifiedStitchedMosaic(Coverage, Collection):
         self.save()
         return
 
+EO_OBJECT_TYPE_REGISTRY[20] = RectifiedStitchedMosaic
+
 
 class DatasetSeries(Collection):
-    
+    """ Collection type that can entail any type of EO object, even other 
+        collections.
+    """
+
     objects = models.GeoManager()
 
     class Meta:
@@ -684,3 +717,5 @@ class DatasetSeries(Collection):
         self.full_clean()
         self.save()
         return
+
+EO_OBJECT_TYPE_REGISTRY[30] = DatasetSeries

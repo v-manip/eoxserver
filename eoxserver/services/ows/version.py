@@ -27,7 +27,11 @@
 #-------------------------------------------------------------------------------
 
 
-from functools import wraps, total_ordering
+from functools import wraps
+try:
+    from functools import total_ordering
+except ImportError:
+    from eoxserver.core.util.functools import total_ordering
 
 
 __all__ = ["parse_version_string", "Version"]

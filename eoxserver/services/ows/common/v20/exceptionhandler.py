@@ -5,7 +5,7 @@
 # Authors: Fabian Schindler <fabian.schindler@eox.at>
 #
 #-------------------------------------------------------------------------------
-# Copyright (C) 2011 EOX IT Services GmbH
+# Copyright (C) 2013 EOX IT Services GmbH
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -26,15 +26,28 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-
-from eoxserver.core import implements
-from eoxserver.services.mapserver.wms.util import MapServerWMSBaseComponent
-from eoxserver.services.ows.wms.interfaces import (
-    WMSLegendGraphicRendererInterface
-)
+from eoxserver.services.ows.common.v20.encoders import OWS20ExceptionXMLEncoder
 
 
-class MapServerWMSLegendGraphicRenderer(MapServerWMSBaseComponent):
-    """ A WMS feature info renderer using MapServer.
+class OWS20ExceptionHandler(object):
+    """ A Fallback exception handler. This class does on purpose not implement
+        the ExceptionHandlerInterface and must be instantiated manually.
     """
-    implements(WMSLegendGraphicRendererInterface)
+
+    def handle_exception(self, request, exception):
+        message = str(exception)
+        version = "2.0.0"
+        code = getattr(exception, "code", type(exception).__name__)
+        locator = getattr(exception, "locator", None)
+        status_code = 400
+
+        encoder = OWS20ExceptionXMLEncoder()
+
+        return (
+            encoder.serialize(
+                encoder.encode_exception(message, version, code, locator)
+            ),
+            encoder.content_type,
+            status_code
+        )
+
