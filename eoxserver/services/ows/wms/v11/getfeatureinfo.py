@@ -41,6 +41,7 @@ from eoxserver.services.ows.wms.util import (
 from eoxserver.services.ows.wms.interfaces import (
     WMSFeatureInfoRendererInterface
 )
+from eoxserver.services.result import to_http_response
 
 
 class WMS11GetFeatureInfoHandler(Component):
@@ -73,16 +74,14 @@ class WMS11GetFeatureInfoHandler(Component):
         if time: 
             subsets.append(time)
         
-        # TODO: remove this explicit mapserver dependency
-        #ms_component = MapServerComponent(env)
-        #suffixes = set(map(lambda s: s.suffix, ms_component.layer_factories))
-        suffixes = (None, "_bands", "_outlines")
-        root_group = lookup_layers(layers, subsets, chain((None,), suffixes))
-        
-        return self.renderer.render(
+        renderer = self.renderer
+        root_group = lookup_layers(layers, subsets, renderer.suffixes)
+
+        result, _ = renderer.render(
             root_group, request.GET.items(), 
             time=decoder.time, bands=decoder.dim_bands
         )
+        return to_http_response(result)
 
 
 class WMS11GetFeatureInfoDecoder(kvp.Decoder):

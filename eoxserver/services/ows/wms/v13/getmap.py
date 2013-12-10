@@ -27,12 +27,10 @@
 #-------------------------------------------------------------------------------
 
 
-from itertools import chain
-
 from eoxserver.core import Component, implements, UniqueExtensionPoint
 from eoxserver.core.decoders import kvp, typelist, InvalidParameterException
 from eoxserver.resources.coverages import models, crss
-from eoxserver.services.subset import Subsets, Trim, Slice
+from eoxserver.services.subset import Subsets, Trim
 from eoxserver.services.ows.interfaces import (
     ServiceHandlerInterface, GetServiceHandlerInterface
 )
@@ -40,6 +38,7 @@ from eoxserver.services.ows.wms.util import (
     lookup_layers, parse_bbox, parse_time, int_or_str
 )
 from eoxserver.services.ows.wms.interfaces import WMSMapRendererInterface
+from eoxserver.services.result import to_http_response
 
 
 class WMS13GetMapHandler(Component):
@@ -48,7 +47,7 @@ class WMS13GetMapHandler(Component):
 
     renderer = UniqueExtensionPoint(WMSMapRendererInterface)
 
-    service = "WMS"
+    service = ("WMS", None)
     versions = ("1.3.0", "1.3")
     request = "GetMap"
 
@@ -81,15 +80,14 @@ class WMS13GetMapHandler(Component):
         if time: 
             subsets.append(time)
         
-        #ms_component = MapServerComponent(env)
-        #suffixes = set(map(lambda s: s.suffix, ms_component.layer_factories))
-        suffixes = (None, "_bands", "_outlines")
-        root_group = lookup_layers(layers, subsets, chain((None,), suffixes))
-        
-        return self.renderer.render(
+        renderer = self.renderer
+        root_group = lookup_layers(layers, subsets, renderer.suffixes)
+
+        result, _ = renderer.render(
             root_group, request.GET.items(), 
             time=decoder.time, bands=decoder.dim_bands
         )
+        return to_http_response(result)
 
 
 class WMS13GetMapDecoder(kvp.Decoder):

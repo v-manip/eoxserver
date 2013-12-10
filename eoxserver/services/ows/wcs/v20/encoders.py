@@ -169,7 +169,9 @@ class WCS20CapabilitiesXMLEncoder(OWS20Encoder):
             service_metadata = WCS("ServiceMetadata")
 
             # get the list of enabled formats from the format registry
-            formats = getFormatRegistry().getSupportedFormatsWCS()
+            formats = filter(
+                lambda f: f, getFormatRegistry().getSupportedFormatsWCS()
+            )
             service_metadata.extend(
                 map(lambda f: WCS("formatSupported", f.mimeType), formats)
             )
@@ -242,11 +244,10 @@ class WCS20CapabilitiesXMLEncoder(OWS20Encoder):
             caps.append(WCS("Contents", *contents))
 
         root = WCS("Capabilities", *caps, version="2.0.1")
-        return etree.tostring(root, pretty_print=True, encoding='iso-8859-1'), "text/xml"
+        return root
 
     def get_schema_locations(self):
         return nsmap.schema_locations
-
 
 
 class GML32Encoder(object):
@@ -402,9 +403,10 @@ class GMLCOV10Encoder(GML32Encoder):
         )
 
     def encode_referenceable_grid(self, size, sr, grid_name):
+        size_x, size_y = size
         swap = crss.getAxesSwapper(sr.srid)
-        labels = "x", "y" if sr.IsProjected() else "long", "lat"
-        axis_labels = " ".join(swap(labels))
+        labels = ("x", "y") if sr.IsProjected() else ("long", "lat")
+        axis_labels = " ".join(swap(*labels))
 
         return GML("ReferenceableGrid",
             GML("limits",
@@ -417,8 +419,8 @@ class GMLCOV10Encoder(GML32Encoder):
             }
         )
 
-    def encode_domain_set(self, coverage, srid=None, size=None, extent=None):
-        rectified = True
+    def encode_domain_set(self, coverage, srid=None, size=None, extent=None, 
+                          rectified=True):
         grid_name = "%s_grid" % coverage.identifier
         srs = SpatialReference(srid) if srid is not None else None
 
@@ -476,7 +478,7 @@ class GMLCOV10Encoder(GML32Encoder):
     def encode_nil_values(self, nil_value_set):
         return SWE("nilValues",
             *[SWE("NilValues",
-                SWE("nilValue", nil_value.value_string, reason=nil_value.reason)
+                SWE("nilValue", nil_value.raw_value, reason=nil_value.reason)
             ) for nil_value in nil_value_set]
         )
 
@@ -638,23 +640,58 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
         )
 
     def alter_rectified_dataset(self, coverage, request, tree, subset_polygon=None):
-        return EOWCS("RectifiedDataset",
-            tree.children,
-            self.encode_eo_metadata(coverage, request, subset_polygon)
-        )
+        return EOWCS("RectifiedDataset", *(
+            tree.getchildren() +
+            [self.encode_eo_metadata(coverage, request, subset_polygon)]
+        ))
 
     def alter_rectified_stitched_mosaic(self, coverage, request, subset=None):
-        return EOWCS("RectifiedStitchedMosaic",
-            tree.children,
-            self.encode_eo_metadata(coverage, request, subset_polygon),
+        return EOWCS("RectifiedStitchedMosaic", *(
+            tree.getchildren() +
+            [self.encode_eo_metadata(coverage, request, subset_polygon)]
             # TODO: contributing datasets
+        ))
+
+    def encode_referenceable_dataset(self, coverage, range_type, reference, 
+                                     mime_type, subset=None):
+        # handle subset 
+        dst_srid = coverage.srid
+
+        if not subset:
+            # whole area - no subset 
+            domain_set = self.encode_domain_set(coverage, rectified=False)
+            eo_metadata = self.encode_eo_metadata(coverage)
+            extent = coverage.extent
+            sr = SpatialReference(dst_srid)
+
+        else:
+            # subset is given 
+            srid, size, extent, footprint = subset 
+
+            domain_set = self.encode_domain_set(
+                coverage, srid, size, extent, False
+            )
+            eo_metadata = self.encode_eo_metadata(
+                coverage, subset_footprint=footprint
+            )
+
+            # get the WGS84 extent
+            poly = Polygon.from_bbox(extent)
+            poly.srid = srid
+            poly.transform(dst_srid)
+            extent = poly.extent
+            sr = SpatialReference(srid)
+
+        return EOWCS("ReferenceableDataset",
+            self.encode_bounded_by(extent, sr),
+            domain_set,
+            self.encode_range_set(reference, mime_type),
+            self.encode_range_type(range_type),
+            eo_metadata,
+            **{
+                ns_gml("id"): self.get_gml_id(coverage.identifier)
+            }
         )
-
-    def encode_referenceable_dataset(self, coverage, reference, mime_type, subset=None):
-
-        #if subset:
-        pass
-
 
     def encode_dataset_series_description(self, dataset_series):
         return EOWCS("DatasetSeriesDescription",

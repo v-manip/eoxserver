@@ -98,7 +98,7 @@ class NoSuchCoverageException(LocatorListException):
 
     def __str__(self):
         return "Could not find Coverage%s with ID: %s" % (
-            " " if len(self.items) == 1 else "s", ", ".join(self.items)
+            "" if len(self.items) == 1 else "s", ", ".join(self.items)
         )
 
 
@@ -118,11 +118,13 @@ class OperationNotSupportedException(Exception):
     """ Exception to be thrown when some operations are not supported or 
         disabled.
     """
-    def __init__(self, operation):
+    def __init__(self, message, operation=None):
+        super(OperationNotSupportedException, self).__init__(message)
         self.operation = operation
 
-    def __str__(self):
-        return "Operation '%s' is not supported." % self.operation
+    @property
+    def locator(self):
+        return self.operation
 
     code = "OperationNotSupported"
 
@@ -134,7 +136,10 @@ class ServiceNotSupportedException(OperationNotSupportedException):
         self.service = service
 
     def __str__(self):
-        return "Service '%s' is not supported." % self.service.upper()
+        if self.service:
+            return "Service '%s' is not supported." % self.service.upper()
+        else:
+            return "Service is not supported."
 
 
 class VersionNotSupportedException(Exception):
@@ -146,8 +151,11 @@ class VersionNotSupportedException(Exception):
         self.version = version
 
     def __str__(self):
-        return "Service '%s' version '%s' is not supported." % (
-            self.service, self.version
-        )
+        if self.service:
+            return "Service '%s' version '%s' is not supported." % (
+                self.service, self.version
+            )
+        else:
+            return "Version '%s' is not supported." % self.version
 
     code = "InvalidParameterValue"

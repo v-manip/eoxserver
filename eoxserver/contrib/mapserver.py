@@ -42,54 +42,12 @@ from eoxserver.contrib import gdal
 logger = logging.getLogger(__name__)
 is_xml = lambda ct: getMimeType(ct) in ("text/xml", "application/xml", "application/gml+xml")
 is_multipart = lambda ct: getMimeType(ct).startswith("multipart/") 
-
+msversion = msGetVersionInt()
 
 class MapServerException(Exception):
     def __init__(self, message, locator):
         super(MapServerException, self).__init__(message)
         self.locator = locator
-
-
-class Response(object):
-    """ Data class for mapserver results. 
-    """
-
-    def __init__(self, content, content_type, status):
-        self.content = content
-        self.content_type = content_type
-
-    @property
-    def multipart(self):
-        return
-
-
-    def _split(self, content, content_type):
-
-        if is_multipart(content_type): 
-        
-            # extract multipart boundary  
-            boundary = getMultipartBoundary(content_type)
-
-            for headers, offset, size in mpUnpack(content, boundary, capitalize=True):
-
-                if is_xml( headers['Content-Type'] ) : 
-                    self.ms_response_xml = self.content[offset:(offset+size)]
-                    self.ms_response_xml_headers = headers
-                else : 
-                    self.ms_response_data = self.content[offset:(offset+size)] 
-                    self.ms_response_data_headers = headers
-
-        else: # single part payload 
-            
-            headers = headcap(headers)
-            headers['Content-Type'] = self.content_type 
-
-            if is_xml( self.content_type ) : 
-                self.ms_response_xml = self.content
-                self.ms_response_xml_headers = headers
-            else : 
-                self.ms_response_data = self.content 
-                self.ms_response_data_headers = headers
 
 
 class MetadataMixIn(object):
@@ -127,68 +85,49 @@ class MetadataMixIn(object):
 
 
 class Map(MetadataMixIn, mapObj):
-
     def dispatch(self, request):
-        """ Wraps the ``OWSDispatch`` method. Perfoms all necessary steps for a 
-            further handling of the result.
-        """
+        return dispatch(self, request)
 
-        logger.debug("MapServer: Installing stdout to buffer.")
-        msIO_installStdoutToBuffer()
 
-        # write the map if debug is enabled
-        if logger.isEnabledFor(logging.DEBUG):
-            fd, filename = tempfile.mkstemp(text=True)
-            try:
-                with os.fdopen(fd) as f:
-                    self.save(filename)
-                    logger.debug(f.read())
-            finally:
-                os.remove(filename)
-        
+def dispatch(map_, request):
+    """ Wraps the ``OWSDispatch`` method. Perfoms all necessary steps for a 
+        further handling of the result.
+    """
+
+    logger.debug("MapServer: Installing stdout to buffer.")
+    msIO_installStdoutToBuffer()
+
+    # write the map if debug is enabled
+    if logger.isEnabledFor(logging.DEBUG):
+        fd, filename = tempfile.mkstemp(text=True)
         try:
-            logger.debug("MapServer: Dispatching.")
-            ts = time.time()
-            # Execute the OWS request by mapserver, obtain the status in 
-            # dispatch_status (0 is OK)
-            status = self.OWSDispatch(request)
-            te = time.time()
-            logger.debug("MapServer: Dispatch took %f seconds." % (te - ts))
-        except Exception, e:
-            raise MapServerException(str(e), "NoApplicableCode")
-        
-        logger.debug("MapServer: Retrieving content-type.")
-        try:
-            content_type = msIO_stripStdoutBufferContentType()
-            msIO_stripStdoutBufferContentHeaders()
+            with os.fdopen(fd) as f:
+                map_.save(filename)
+                logger.debug(f.read())
+        finally:
+            os.remove(filename)
+    
+    try:
+        logger.debug("MapServer: Dispatching.")
+        ts = time.time()
+        # Execute the OWS request by mapserver, obtain the status in 
+        # dispatch_status (0 is OK)
+        status = map_.OWSDispatch(request)
+        te = time.time()
+        logger.debug("MapServer: Dispatch took %f seconds." % (te - ts))
+    except Exception, e:
+        raise MapServerException(str(e), "NoApplicableCode")
+    
+    bytes = msIO_getStdoutBufferBytes()
 
-        except MapServerError:
-            # degenerate response. Manually split headers from content
-            result = msIO_getStdoutBufferBytes()
-            parts = result.split("\r\n")
-            result = parts[-1]
-            headers = parts[:-1]
-            
-            for header in headers:
-                if header.lower().startswith("content-type"):
-                    content_type = header[14:]
-                    break
-            else:
-                content_type = None
-
-        else:
-            logger.debug("MapServer: Retrieving stdout buffer bytes.")
-            result = msIO_getStdoutBufferBytes()
-        
-        logger.debug("MapServer: Performing MapServer cleanup.")
-        # Workaround for MapServer issue #4369
-        msversion = msGetVersionInt()
-        if msversion < 60004 or (msversion < 60200 and msversion >= 60100):
-            msCleanup()
-        else:
-            msIO_resetHandlers()
-        
-        return Response(result, content_type, status)
+    logger.debug("MapServer: Performing MapServer cleanup.")
+    # Workaround for MapServer issue #4369
+    if msversion < 60004 or (msversion < 60200 and msversion >= 60100):
+        msCleanup()
+    else:
+        msIO_resetHandlers()
+    
+    return bytes
 
 
 class Layer(MetadataMixIn, layerObj):
@@ -259,3 +198,25 @@ def gdalconst_to_imagemode_string(const):
         return "INT16"
     elif const == gdal.GDT_Float32:
         return "FLOAT32"
+
+
+def setMetaData(obj, key_or_params, value=None, namespace=None):
+        """ Convenvience function to allow setting multiple metadata values with 
+            one call and optionally setting a 'namespace' for each entry.
+        """
+        if value is None:
+            for key, value in key_or_params.items():
+                if namespace:
+                    key = "%s_%s" % (namespace, key)
+
+                obj.setMetaData(key, value)
+        else:
+            if namespace:
+                key = "%s_%s" % (namespace, key_or_params)
+            else:
+                key = key_or_params
+
+            obj.setMetaData(key, value)
+
+# alias
+set_metadata = setMetaData

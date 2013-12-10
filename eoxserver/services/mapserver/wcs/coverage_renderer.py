@@ -30,22 +30,27 @@
 from datetime import datetime
 from urllib import unquote
 
+from lxml import etree
+
 from eoxserver.core import implements, ExtensionPoint
-from eoxserver.contrib.mapserver import (
-    create_request, outputFormatObj, gdalconst_to_imagemode, 
-)
-from eoxserver.backends.cache import CacheContext
+from eoxserver.contrib import mapserver as ms
+from eoxserver.resources.coverages import models
+from eoxserver.resources.coverages.formats import getFormatRegistry
 from eoxserver.services.ows.wcs.interfaces import WCSCoverageRendererInterface
 from eoxserver.services.ows.wcs.v20.encoders import WCS20EOXMLEncoder
 from eoxserver.services.mapserver.interfaces import (
     ConnectorInterface, LayerFactoryInterface
 )
 from eoxserver.services.mapserver.wcs.base_renderer import BaseRenderer
-from eoxserver.resources.coverages import models
-from eoxserver.resources.coverages.formats import getFormatRegistry
+from eoxserver.services.ows.version import Version
+from eoxserver.services.result import result_set_from_raw_data, ResultBuffer
 
 
 class RectifiedCoverageMapServerRenderer(BaseRenderer):
+    """ A coverage renderer for rectified coverages. Uses mapserver to process 
+        the request.
+    """
+
     implements(WCSCoverageRendererInterface)
 
     handles = (models.RectifiedDataset, models.RectifiedStitchedMosaic)
@@ -53,14 +58,17 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
     connectors = ExtensionPoint(ConnectorInterface)
     layer_factories = ExtensionPoint(LayerFactoryInterface)
 
+    versions = (Version(2, 0), Version(1, 1), Version(1, 0))
 
-    def render(self, coverage, request_values):
-        with CacheContext() as cache:
-            return self._render(coverage, request_values, cache)
+    def supports(self, params):
+        return issubclass(params.coverage.real_type, 
+            (models.RectifiedDataset, models.RectifiedStitchedMosaic)
+        ) and params.version in self.versions
 
-    def _render(self, coverage, request_values, cache):
+
+    def render(self, params):
         # get coverage related stuff
-        
+        coverage = params.coverage
         data_items = self.data_items_for_coverage(coverage)
 
         range_type = coverage.range_type
@@ -71,13 +79,13 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
 
         # configure outputformat
         native_format = self.get_native_format(coverage, data_items)
-        format = self.find_param(request_values, "format", native_format)
+        format = params.format or native_format
 
         if format is None:
             raise Exception("format could not be determined")
 
         # TODO: imagemode
-        imagemode = gdalconst_to_imagemode(bands[0].data_type)
+        imagemode = ms.gdalconst_to_imagemode(bands[0].data_type)
         time_stamp = datetime.now().strftime("%Y%m%d%H%M%S")
         basename = "%s_%s" % (coverage.identifier, time_stamp) 
         of = create_outputformat(format, imagemode, basename)
@@ -85,7 +93,7 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
         map_.setOutputFormat(of)
 
         # TODO: use layer factory here
-        layer = self.layer_for_coverage(coverage, native_format)
+        layer = self.layer_for_coverage(coverage, native_format, params.version)
         
         map_.insertLayer(layer)
 
@@ -96,25 +104,33 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
             raise Exception("Could not find applicable layer connector.")
 
         try:
-            connector.connect(coverage, data_items, layer, cache)
+            connector.connect(coverage, data_items, layer)
             # create request object and dispatch it agains the map
-            request = create_request(request_values)
-            response = map_.dispatch(request)
+            request = ms.create_request(params)
+            raw_result = ms.dispatch(map_, request)
 
         finally:
             # perform any required layer related cleanup
-            connector.disconnect(coverage, data_items, layer, cache)
+            connector.disconnect(coverage, data_items, layer)
 
-        if self.find_param(request_values, "mediatype") in ("multipart/mixed", "multipart/related"):
-            # TODO: change the response XML
-            #encoder = WCS20EOXMLEncoder()
-            #return , mediatype
-            pass
+        result_set = result_set_from_raw_data(raw_result)
+
+        if getattr(params, "mediatype", None) in ("multipart/mixed", "multipart/related"):
+            encoder = WCS20EOXMLEncoder()
+            result_set[0] = ResultBuffer(
+                encoder.serialize(
+                    encoder.alter_rectified_dataset(
+                        coverage, getattr(params, "http_request", None), 
+                        etree.parse(result_set[0].data_file).getroot(), None
+                    )
+                ), 
+                encoder.content_type
+            )
+            
 
         # "default" response
-        return response.content, response.content_type
+        return result_set
         
-
 
 def create_outputformat(frmt, imagemode, basename):
     parts = unquote(frmt).split(";")
@@ -134,14 +150,13 @@ def create_outputformat(frmt, imagemode, basename):
     if not reg_format:
         raise Exception("Unsupported output format '%s'." % frmt)
 
-    outputformat = outputFormatObj(reg_format.driver, "custom")
+    outputformat = ms.outputFormatObj(reg_format.driver, "custom")
     outputformat.name = reg_format.wcs10name
     outputformat.mimetype = reg_format.mimeType
     outputformat.extension = reg_format.defaultExt
     outputformat.imagemode = imagemode
 
     for key, value in options:
-        print key, value
         outputformat.setOption(key, value)
 
     filename = basename + reg_format.defaultExt

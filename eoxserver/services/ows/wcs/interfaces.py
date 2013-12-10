@@ -30,15 +30,29 @@
 class WCSCapabilitiesRendererInterface(object):
     """ Interface for WCS Capabilities renderers.
     """
-    def render(self, coverages, request_values):
+
+    def render(self, params):
         """ Render the capabilities including information about the given 
             coverages.
         """
 
+    def supports(self, params):
+        """ Returns a boolean value to indicate whether or not the renderer is 
+            able to render the capabilities with the given parameters.
+        """
+
 
 class WCSCoverageDescriptionRendererInterface(object):
-    def render(self, coverages, request_values):
+    """ Interface for coverage description renderers.
+    """
+
+    def render(self, params):
         """ Render the description of the given coverages.
+        """
+
+    def supports(self, params):
+        """ Returns a boolean value to indicate whether or not the renderer is 
+            able to render the coverage and the given WCS version.
         """
 
 
@@ -46,14 +60,45 @@ class WCSCoverageRendererInterface(object):
     """ Interface for coverage renderers.
     """
 
-    def render(self, coverage, request_values):
+    def render(self, params):
         """ Render the coverage with the given parameters.
         """
 
-    @property
-    def handles(self):
-        """ Returns an iterable of all coverage classes that this renderer is 
-            able to render.
+    def supports(self, params):
+        """ Returns a boolean value to indicate whether or not the renderer is 
+            able to render the coverage with the given parameters.
         """
 
 
+class PackageWriterInterface(object):
+    """ Interface for package writers.
+    """
+
+    def supports(self, format, params):
+        """ Return a boolen value, whether or not a writer supports a given 
+            format.
+        """
+
+    def create_package(self, filename, format, params):
+        """ Create a package, which the encoder can later add items to with the 
+            `cleanup` and `add_to_package` method.
+        """
+
+    def cleanup(self, package):
+        """ Perform any necessary cleanups, like closing files, etc.
+        """
+
+    def add_to_package(self, package, file_obj, size, location):
+        """ Add the file object to the package, that is returned by the 
+            `create_package` method.
+        """
+
+    def get_mime_type(self, package, format, params):
+        """ Retrieve the output mime type for the given package and/or format
+            specifier.
+        """
+
+    def get_file_extension(self, package, format, params):
+        """ Retrieve the file extension for the given package and format 
+            specifier.
+        """

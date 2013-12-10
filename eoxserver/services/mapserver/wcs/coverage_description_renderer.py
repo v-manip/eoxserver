@@ -28,34 +28,50 @@
 
 
 from eoxserver.core import implements
-from eoxserver.contrib.mapserver import create_request
-from eoxserver.backends.cache import CacheContext
+from eoxserver.contrib import mapserver as ms
+from eoxserver.resources.coverages import models
 from eoxserver.services.mapserver.wcs.base_renderer import BaseRenderer
+from eoxserver.services.ows.version import Version
 from eoxserver.services.ows.wcs.interfaces import (
     WCSCoverageDescriptionRendererInterface
 )
+from eoxserver.services.result import result_set_from_raw_data
 
 
 class CoverageDescriptionMapServerRenderer(BaseRenderer):
+    """ A coverage description renderer implementation using mapserver.
+    """
+
     implements(WCSCoverageDescriptionRendererInterface)
 
-    def render(self, coverages, request_values):
+    versions = (Version(1, 0), Version(1, 1))
+    handles = (models.RectifiedDataset, models.RectifiedStitchedMosaic)
+
+    def supports(self, params):
+        return (
+            params.version in self.versions 
+            and all(
+                map(lambda c: issubclass(c.real_type, self.handles), params.coverages)
+            )
+        )
+
+    def render(self, params):
         map_ = self.create_map()
 
-        use_name = self.find_param(request_values, "version").startswith("1.0")
+        use_name = (params.version == Version(1, 0))
 
-        for coverage in coverages:
+        for coverage in params.coverages:
             data_items = self.data_items_for_coverage(coverage)
             native_format = self.get_native_format(coverage, data_items)
-            layer = self.layer_for_coverage(coverage, native_format)
-
+            layer = self.layer_for_coverage(
+                coverage, native_format, params.version
+            )
             map_.insertLayer(layer)
-
         
         for outputformat in self.get_all_outputformats(not use_name):
             map_.appendOutputFormat(outputformat)
 
-        request = create_request(request_values)
-        response = map_.dispatch(request)
-
-        return response.content, response.content_type
+        request = ms.create_request(params)
+        raw_result = ms.dispatch(map_, request)
+        result = result_set_from_raw_data(raw_result)
+        return result

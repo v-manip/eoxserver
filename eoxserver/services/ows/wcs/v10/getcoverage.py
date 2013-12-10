@@ -26,32 +26,22 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-
-from itertools import chain
-
-from eoxserver.core import Component, implements, ExtensionPoint
-from eoxserver.core.decoders import xml, kvp, typelist, upper, enum
-from eoxserver.resources.coverages import models
+from eoxserver.core import Component, implements
+from eoxserver.core.decoders import xml, kvp
 from eoxserver.services.ows.interfaces import (
     ServiceHandlerInterface, GetServiceHandlerInterface, 
     PostServiceHandlerInterface
 )
-from eoxserver.services.ows.wcs.interfaces import WCSCoverageRendererInterface
-from eoxserver.services.exceptions import (
-    NoSuchCoverageException, OperationNotSupportedException
-)
+from eoxserver.services.ows.wcs.basehandlers import WCSGetCoverageHandlerBase
+from eoxserver.services.ows.wcs.v10.parameters import WCS10CoverageRenderParams
 
 
-class WCS10GetCoverageHandler(Component):
+class WCS10GetCoverageHandler(WCSGetCoverageHandlerBase, Component):
     implements(ServiceHandlerInterface)
     implements(GetServiceHandlerInterface)
-    implements(PostServiceHandlerInterface)
+    #implements(PostServiceHandlerInterface)
 
-    renderers = ExtensionPoint(WCSCoverageRendererInterface)
-
-    service = "WCS" 
     versions = ("1.0.0",)
-    request = "GetCoverage"
 
     def get_decoder(self, request):
         if request.method == "GET":
@@ -62,31 +52,12 @@ class WCS10GetCoverageHandler(Component):
             pass
 
 
-    def get_renderer(self, coverage_type):
-        for renderer in self.renderers:
-            if issubclass(coverage_type, renderer.handles):
-                return renderer
-
-        raise OperationNotSupportedException(
-            "No renderer found for coverage type '%s'." % coverage_type.__name__
+    def get_params(self, coverage, decoder):
+        return WCS10CoverageRenderParams(
+            coverage, decoder.bbox, decoder.crs, decoder.format, 
+            decoder.response_crs, decoder.width, decoder.height,
+            decoder.resx, decoder.resy, decoder.interpolation
         )
-
-
-    def handle(self, request):
-        decoder = self.get_decoder(request)
-
-        #get parameters
-        coverage_id = decoder.coverage
-        
-        try:
-            coverage = models.Coverage.objects.get(identifier=coverage_id)
-        except models.Coverage.DoesNotExist:
-            raise NoSuchCoverageException((coverage_id,))
-
-        coverage_type = coverage.real_type
-
-        renderer = self.get_renderer(coverage_type)
-        return renderer.render(coverage, request.GET.items())
 
 
 def parse_bbox_kvp(string):
@@ -94,7 +65,7 @@ def parse_bbox_kvp(string):
 
 
 class WCS10GetCoverageKVPDecoder(kvp.Decoder):
-    coverage    = kvp.Parameter(num=1)
+    coverage_id = kvp.Parameter("coverage", num=1)
     crs         = kvp.Parameter(num=1)
     response_crs = kvp.Parameter(num="?")
     bbox        = kvp.Parameter(type=parse_bbox_kvp)

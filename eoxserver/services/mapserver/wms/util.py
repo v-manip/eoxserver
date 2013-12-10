@@ -38,6 +38,7 @@ from eoxserver.contrib import mapserver as ms
 from eoxserver.services.mapserver.interfaces import (
     ConnectorInterface, LayerFactoryInterface, StyleApplicatorInterface
 )
+from eoxserver.services.result import result_set_from_raw_data, get_content_type
 
 
 logger = logging.getLogger(__name__)
@@ -56,13 +57,16 @@ class MapServerWMSBaseComponent(Component):
         map_ = ms.Map()
         map_.setMetaData("ows_enable_request", "*")
         map_.setProjection("EPSG:4326")
+        map_.imagecolor.setRGB(0, 0, 0)
 
         session = self.setup_map(layer_groups, map_, options)
         
         with session:
             request = ms.create_request(request_values)
-            response = map_.dispatch(request)
-            return response.content, response.content_type
+            raw_result = map_.dispatch(request)
+
+            result = result_set_from_raw_data(raw_result)
+            return result, get_content_type(result)
 
 
     @property
@@ -174,6 +178,9 @@ class MapServerWMSBaseComponent(Component):
 
 
 class ConnectorSession(object):
+    """ Helper class to be used in `with` statements. Allows connecting and 
+        disconnecting all added layers with the given data items.
+    """
     def __init__(self):
         self.item_list = []
 
@@ -195,7 +202,4 @@ class ConnectorSession(object):
 
     @property
     def coverage_layers(self):
-
         return map(lambda it: (it[1], it[2], it[3]), self.item_list)
-        #for _, coverage, layer, data_items in self.item_list:
-        #    yield coverage, layer, data_items
