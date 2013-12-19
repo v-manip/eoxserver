@@ -35,10 +35,9 @@ import logging
 
 from django.http import HttpResponse
 
-from eoxserver.core import Component, ExtensionPoint
+from eoxserver.core import Component, ExtensionPoint, env
 from eoxserver.core.config import get_eoxserver_config
 from eoxserver.core.decoders import config
-from eoxserver.services.ows.common.v20.encoders import OWS20ExceptionXMLEncoder
 from eoxserver.services.auth.exceptions import AuthorisationException
 from eoxserver.services.auth.interfaces import PolicyDecisionPointInterface
 
@@ -118,14 +117,15 @@ class PDPComponent(Component):
 
     def get_pdp(self, pdp_type):
         for pdp in self.pdps:
-            if pdp.type == pdp_type:
+            if pdp.pdp_type == pdp_type:
                 return pdp
         return None
 
 
 def getPDP():
-    if not pdp_type or pdp_type == "none":
+    reader = AuthConfigReader(get_eoxserver_config())
+    if not reader.pdp_type or reader.pdp_type == "none":
         logger.debug("Authorization deactivated.")
         return None
     else:
-        return PDPComponent(env).get_pdp(pdp_type)
+        return PDPComponent(env).get_pdp(reader.pdp_type)

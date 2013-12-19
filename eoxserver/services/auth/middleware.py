@@ -32,6 +32,8 @@ import functools
 from django.http import HttpResponse
 
 from eoxserver.services.auth.base import getPDP
+from eoxserver.services.auth.exceptions import AuthorisationException
+from eoxserver.services.ows.common.v20.encoders import OWS20ExceptionXMLEncoder
 
 
 class PDPMiddleware(object):
@@ -48,7 +50,7 @@ class PDPMiddleware(object):
                 authorized = pdp.authorize(request)
                 message = "Not authorized"
                 code = "AccessForbidden"
-            except AuthorizationError, e:
+            except AuthorisationException, e:
                 authorized = False
                 message = str(e)
                 code = e.code
@@ -56,7 +58,9 @@ class PDPMiddleware(object):
             if not authorized:
                 encoder = OWS20ExceptionXMLEncoder()
                 return HttpResponse(
-                    encoder.encode_exception(message, "2.0.0", code),
+                    encoder.serialize(
+                        encoder.encode_exception(message, "2.0.0", code)
+                    ),
                     encoder.content_type, status=403
                 )
 
@@ -82,7 +86,7 @@ def pdp_protect(view):
                 authorized = pdp.authorize(request)
                 message = "Not authorized"
                 code = "NotAuthorized"
-            except AuthorizationError, e:
+            except AuthorisationException, e:
                 authorized = False
                 message = str(e)
                 code = e.code
@@ -90,7 +94,9 @@ def pdp_protect(view):
             if not authorized:
                 encoder = OWS20ExceptionXMLEncoder()
                 return HttpResponse(
-                    encoder.encode_exception(message, "2.0.0", code),
+                    encoder.serialize(
+                        encoder.encode_exception(message, "2.0.0", code)
+                    ),
                     encoder.content_type, status=403
                 )
 
