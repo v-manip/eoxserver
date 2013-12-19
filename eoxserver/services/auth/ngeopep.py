@@ -29,14 +29,16 @@ class NgeoPEP(Component):
   def authorize(self, request):
 
     #Get uid from the request
-    userId = request.META['uid']
+    try:
+      userId = request.META['uid']
     
-    #TODO: the browseLayerId must be parsed in future by a specialized eoxserver decoder class
-    browseLayerId = request.GET.get("BrowseLayer", "empty")
-
-    result = AuthorisationClient().EnforceDecision(userId, browseLayerId)
+      #TODO: the browseLayerId must be parsed in future by a specialized eoxserver decoder class
+      browseLayerId = request.GET.get("BrowseLayer", "empty")
+      
+    except Exception, e:
+      raise AuthorisationException("Error while extracting information for authorization: %s" % str(e))
     
-    return result
+    return AuthorisationClient().EnforceDecision(userId, browseLayerId)
 
 ################################################################################
 # AuthorisationClient
