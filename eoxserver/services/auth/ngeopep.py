@@ -7,7 +7,8 @@ import httplib
 from xml.etree import ElementTree
 import memcache
 import logging
-    
+import time
+      
 def enum(**enums):
   return type('Enum', (), enums)
   
@@ -28,30 +29,36 @@ class NgeoPEP(Component):
   #-------------------------------------------------------------------------------
   def authorize(self, request):
 
-    #Get uid from the request
     try:
+      #measure the process    
+      timer = AuthTimer()
+                
+      #Get uid from the request
       userId = request.META['uid']
     
       #TODO: the browseLayerId must be parsed in future by a specialized eoxserver decoder class
       browseLayerId = request.GET.get("BrowseLayer", "empty")
+     
+      logger.debug("Extracted authorization information: uid=[%s], browse layer id=[%s]" % (userId, browseLayerId))
       
     except Exception, e:
       raise AuthorisationException("Error while extracting information for authorization: %s" % str(e))
-    
+   
     return AuthorisationClient().EnforceDecision(userId, browseLayerId)
-
+    
 ################################################################################
 # AuthorisationClient
 ################################################################################            
 class AuthorisationClient(object):  
-
+ 
   #-------------------------------------------------------------------------------
   # EnforceDecision
   #-------------------------------------------------------------------------------
   def EnforceDecision(self, userId, browseLayerId):     
       
       decision = Decision.DONTKNOW
-      error = ['']       
+      error = ['']  
+           
       #See if we find the decision in the cache         
       cachedPD = PolicyDecisionCache().getDecision(userId, browseLayerId)
       if(cachedPD.decision == Decision.DONTKNOW):
@@ -63,15 +70,16 @@ class AuthorisationClient(object):
       else:
         #Apply the cached decision
         decision = cachedPD.decision
-       
+      
       if (decision == Decision.AUTHORIZED):
          #OK - let the request through
+         logger.debug("User %s is authorized to access browse layer '%s'" % (userId, browseLayerId))
          return True
       else:
          #NOK - deny request
+         logger.debug("User %s is NOT authorized to access browse layer '%s'. %s" % (userId, browseLayerId, error[0]))
          raise AuthorisationException("User %s is not authorized to access this content. %s" % (userId, error[0]))
-
-    
+      
 ################################################################################
 # AuthorizerServerInterface
 ################################################################################    
@@ -216,3 +224,19 @@ class ConfigReader(object):
 
   def getCacheTimeout(self):
       return get_eoxserver_config().getint("services.auth.ngeo", "cache_timeout")
+
+
+################################################################################
+# AuthTimer
+################################################################################
+class AuthTimer(object):
+  timerStart = 0
+  
+  def __init__(self):
+    self.timerStart = time.time()#time.clock()  
+      
+  def __del__(self):
+    timerEnd = time.time()#time.clock()
+    authTime = timerEnd - self.timerStart
+    logger.debug("Authorization took %.3f seconds." % (authTime))
+
