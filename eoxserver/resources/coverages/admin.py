@@ -297,3 +297,35 @@ class DatasetSeriesAdmin(CollectionAdmin):
     inlines = (DataSourceInline, EOObjectInline, CollectionInline)
 
 admin.site.register(models.DatasetSeries, DatasetSeriesAdmin)
+
+
+class CurtainCoverageAdmin(CoverageAdmin):
+    model = models.CurtainCoverage
+    inlines = (DataItemInline, CollectionInline)
+
+    fieldsets = (
+        (None, {
+            'fields': ('identifier', )
+        }),
+        ('Metadata', {
+            'fields': ('range_type', 
+                       ('size_x', 'size_y'),
+                       ('min_x', 'min_y', 'min_z'),
+                       ('max_x', 'max_y', 'max_z'),
+                       ('srid', 'projection'),
+                       ('begin_time', 'end_time'),
+                       'vertical_cs_id', 'num_height_levels',
+                       'footprint', 
+                       'ground_path'),
+            'description': 'Geospatial metadata'
+        }),
+    )
+
+admin.site.register(models.CurtainCoverage, CurtainCoverageAdmin)
+
+
+class CubeCoverageAdmin(CoverageAdmin):
+    model = models.CubeCoverage
+    inlines = (DataItemInline, CollectionInline)
+
+admin.site.register(models.CubeCoverage, CubeCoverageAdmin)
