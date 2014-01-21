@@ -785,13 +785,15 @@ class HeightLevel(models.Model):
 '''
 
 class CubeCoverage(VerticalCoverage):
-    pass
+    objects = models.GeoManager()
 
 EO_OBJECT_TYPE_REGISTRY[40] = CubeCoverage
 
 class CurtainCoverage(VerticalCoverage):
     look_angle = models.FloatField()
     ground_path = models.LineStringField()
+
+    objects = models.GeoManager()
 
 EO_OBJECT_TYPE_REGISTRY[41] = CurtainCoverage
 
