@@ -36,11 +36,13 @@ from eoxserver.core import implements, ExtensionPoint
 from eoxserver.contrib import mapserver as ms
 from eoxserver.resources.coverages import models
 from eoxserver.resources.coverages.formats import getFormatRegistry
+from eoxserver.services.exceptions import NoSuchCoverageException
 from eoxserver.services.ows.wcs.interfaces import WCSCoverageRendererInterface
 from eoxserver.services.ows.wcs.v20.encoders import WCS20EOXMLEncoder
 from eoxserver.services.mapserver.interfaces import (
     ConnectorInterface, LayerFactoryInterface
 )
+from eoxserver.services.subset import Subsets
 from eoxserver.services.mapserver.wcs.base_renderer import BaseRenderer
 from eoxserver.services.ows.version import Version
 from eoxserver.services.result import result_set_from_raw_data, ResultBuffer
@@ -53,42 +55,61 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
 
     implements(WCSCoverageRendererInterface)
 
-    handles = (models.RectifiedDataset, models.RectifiedStitchedMosaic)
+    # ReferenceableDatasets are not handled in WCS >= 2.0
+    versions_full = (Version(1, 1), Version(1, 0))
+    versions_partly = (Version(2, 0),)
+    versions = versions_full + versions_partly
+    handles_full = (models.RectifiedDataset, models.RectifiedStitchedMosaic, models.ReferenceableDataset)
+    handles_partly = (models.RectifiedDataset, models.RectifiedStitchedMosaic)
+    handles = handles_full + handles_partly
 
     connectors = ExtensionPoint(ConnectorInterface)
     layer_factories = ExtensionPoint(LayerFactoryInterface)
 
-    versions = (Version(2, 0), Version(1, 1), Version(1, 0))
-
     def supports(self, params):
-        return issubclass(params.coverage.real_type, 
-            (models.RectifiedDataset, models.RectifiedStitchedMosaic)
-        ) and params.version in self.versions
-
+        return (
+            (params.version in self.versions_full
+            and issubclass(params.coverage.real_type, self.handles_full))
+            or
+            (params.version in self.versions_partly
+            and issubclass(params.coverage.real_type, self.handles_partly))
+        )
 
     def render(self, params):
         # get coverage related stuff
         coverage = params.coverage
+
+        # ReferenceableDataset are not supported in WCS < 2.0
+        if issubclass(coverage.real_type, models.ReferenceableDataset):
+            raise NoSuchCoverageException((coverage.identifier,))
+
         data_items = self.data_items_for_coverage(coverage)
 
         range_type = coverage.range_type
         bands = list(range_type)
+        subsets = Subsets(params.subsets)
 
         # create and configure map object
         map_ = self.create_map()
 
         # configure outputformat
         native_format = self.get_native_format(coverage, data_items)
-        format = params.format or native_format
+        if get_format_by_mime(native_format) is None:
+            native_format = "image/tiff"
 
-        if format is None:
+        frmt = params.format or native_format
+
+        if frmt is None:
             raise Exception("format could not be determined")
+
+        mime_type, frmt = split_format(frmt)
 
         # TODO: imagemode
         imagemode = ms.gdalconst_to_imagemode(bands[0].data_type)
         time_stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        basename = "%s_%s" % (coverage.identifier, time_stamp) 
-        of = create_outputformat(format, imagemode, basename)
+        basename = "%s_%s" % (coverage.identifier, time_stamp)
+        of = create_outputformat(mime_type, frmt, imagemode, basename)
+
         map_.appendOutputFormat(of)
         map_.setOutputFormat(of)
 
@@ -107,6 +128,7 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
             connector.connect(coverage, data_items, layer)
             # create request object and dispatch it agains the map
             request = ms.create_request(params)
+            request.setParameter("format", mime_type)
             raw_result = ms.dispatch(map_, request)
 
         finally:
@@ -121,7 +143,8 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
                 encoder.serialize(
                     encoder.alter_rectified_dataset(
                         coverage, getattr(params, "http_request", None), 
-                        etree.parse(result_set[0].data_file).getroot(), None
+                        etree.parse(result_set[0].data_file).getroot(), 
+                        subsets.bounding_polygon(coverage)
                     )
                 ), 
                 encoder.content_type
@@ -130,22 +153,23 @@ class RectifiedCoverageMapServerRenderer(BaseRenderer):
 
         # "default" response
         return result_set
-        
 
-def create_outputformat(frmt, imagemode, basename):
+
+def split_format(frmt):
     parts = unquote(frmt).split(";")
     mime_type = parts[0]
     options = map(
         lambda kv: map(lambda i: i.strip(), kv.split("=")), parts[1:]
     )
+    return mime_type, options
+        
 
-    registry = getFormatRegistry()
-    reg_format = registry.getFormatByMIME(mime_type) 
+def create_outputformat(mime_type, options, imagemode, basename):
+    """ Returns a ``mapscript.outputFormatObj`` for the given format name and 
+        imagemode.
+    """
 
-    if not reg_format:
-        wcs10_frmts = registry.getFormatsByWCS10Name(mime_type)
-        if wcs10_frmts:
-            reg_format = wcs10_frmts[0]
+    reg_format = get_format_by_mime(mime_type)
 
     if not reg_format:
         raise Exception("Unsupported output format '%s'." % frmt)
@@ -157,7 +181,7 @@ def create_outputformat(frmt, imagemode, basename):
     outputformat.imagemode = imagemode
 
     for key, value in options:
-        outputformat.setOption(key, value)
+        outputformat.setOption(str(key), str(value))
 
     filename = basename + reg_format.defaultExt
     outputformat.setOption("FILENAME", str(filename))
@@ -165,9 +189,18 @@ def create_outputformat(frmt, imagemode, basename):
     return outputformat
 
 
-def pop_request_value(request_values, key, default=None):
-    for request_value in request_values:
-        if key == request_value[0]:
-            request_values.remove(request_value)
-            return request_values[1]
-    return default
+def get_format_by_mime(mime_type):
+    """ Convenience function to return an enabled format descriptior for the 
+        given mime type or WCS 1.0 format name. Returns ``None``, if none 
+        applies.
+    """
+
+    registry = getFormatRegistry()
+    reg_format = registry.getFormatByMIME(mime_type) 
+
+    if not reg_format:
+        wcs10_frmts = registry.getFormatsByWCS10Name(mime_type)
+        if wcs10_frmts:
+            reg_format = wcs10_frmts[0]
+
+    return reg_format

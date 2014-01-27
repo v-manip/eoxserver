@@ -1,4 +1,4 @@
-#-------------------------------------------------------------------------------
+    #-------------------------------------------------------------------------------
 # $Id$
 #
 # Project: EOxServer <http://eoxserver.org>
@@ -29,11 +29,17 @@
 
 from lxml import etree
 
+from django.contrib.gis.geos import Polygon
+from django.utils.timezone import now
+
 from eoxserver.core.config import get_eoxserver_config
 from eoxserver.core.util.xmltools import XMLEncoder
 from eoxserver.core.util.timetools import isoformat
 from eoxserver.backends.access import retrieve
 from eoxserver.contrib.osr import SpatialReference
+from eoxserver.resources.coverages.models import (
+    RectifiedStitchedMosaic, ReferenceableDataset
+)
 from eoxserver.resources.coverages.formats import getFormatRegistry
 from eoxserver.resources.coverages import crss, models
 from eoxserver.services.ows.component import ServiceComponent, env
@@ -108,8 +114,8 @@ class WCS20CapabilitiesXMLEncoder(OWS20Encoder):
                             OWS("HoursOfService", conf.hours_of_service),
                             OWS("ContactInstructions", conf.contact_instructions)
                         ),
-                    ),
-                    OWS("Role", conf.role)
+                        OWS("Role", conf.role)
+                    )
                 )
             )
 
@@ -243,7 +249,7 @@ class WCS20CapabilitiesXMLEncoder(OWS20Encoder):
 
             caps.append(WCS("Contents", *contents))
 
-        root = WCS("Capabilities", *caps, version="2.0.1")
+        root = WCS("Capabilities", *caps, version="2.0.1", updateSequence=conf.update_sequence)
         return root
 
     def get_schema_locations(self):
@@ -252,7 +258,7 @@ class WCS20CapabilitiesXMLEncoder(OWS20Encoder):
 
 class GML32Encoder(object):
     def encode_linear_ring(self, ring, sr):
-        frmt = "%.8f %.8f" if sr.projected else "%.3f %.3f"
+        frmt = "%.3f %.3f" if sr.projected else "%.8f %.8f"
 
         swap = crss.getAxesSwapper(sr.srid) 
         pos_list = " ".join(frmt % swap(*point) for point in ring)
@@ -372,13 +378,13 @@ class GMLCOV10Encoder(GML32Encoder):
         srs_name = sr.url
         
         swap = crss.getAxesSwapper(sr.srid)
-        frmt = "%.8f %.8f" if sr.IsProjected() else "%.3f %.3f"
+        frmt = "%.3f %.3f" if sr.IsProjected() else "%.8f %.8f"
         labels = ("x", "y") if sr.IsProjected() else ("long", "lat")
 
         axis_labels = " ".join(swap(*labels))
         origin = frmt % swap(minx, maxy)
         x_offsets = frmt % swap((maxx - minx) / float(size_x), 0)
-        y_offsets = frmt % swap(0, (maxy - miny) / float(size_y))
+        y_offsets = frmt % swap(0, (miny - maxy) / float(size_y))
 
         return GML("RectifiedGrid",
             GML("limits",
@@ -446,7 +452,18 @@ class GMLCOV10Encoder(GML32Encoder):
         labels = ("x", "y") if sr.IsProjected() else ("long", "lat")
         axis_labels = " ".join(swap(*labels))
         axis_units = "m m" if sr.IsProjected() else "deg deg"
-        frmt = "%.8f %.8f" if sr.IsProjected() else "%.3f %.3f"
+        frmt = "%.3f %.3f" if sr.IsProjected() else "%.8f %.8f"
+        # Make sure values are outside of actual extent
+        if sr.IsProjected():
+            minx -= 0.0005
+            miny -= 0.0005
+            maxx += 0.0005
+            maxy += 0.0005
+        else:
+            minx -= 0.000000005
+            miny -= 0.000000005
+            maxx += 0.000000005
+            maxy += 0.000000005
         
         return GML("boundedBy",
             GML("Envelope",
@@ -477,9 +494,10 @@ class GMLCOV10Encoder(GML32Encoder):
 
     def encode_nil_values(self, nil_value_set):
         return SWE("nilValues",
-            *[SWE("NilValues",
-                SWE("nilValue", nil_value.raw_value, reason=nil_value.reason)
-            ) for nil_value in nil_value_set]
+            SWE("NilValues",
+                *[SWE("nilValue", nil_value.raw_value, reason=nil_value.reason
+                ) for nil_value in nil_value_set]
+            )
         )
 
     def encode_field(self, band):
@@ -512,10 +530,11 @@ class GMLCOV10Encoder(GML32Encoder):
 
 class WCS20CoverageDescriptionXMLEncoder(GMLCOV10Encoder):
     def encode_coverage_description(self, coverage):
+        rectified = False if issubclass(coverage.real_type, ReferenceableDataset) else True
         return WCS("CoverageDescription",
             self.encode_bounded_by(coverage.extent_wgs84),
             WCS("CoverageId", coverage.identifier),
-            self.encode_domain_set(coverage),
+            self.encode_domain_set(coverage, rectified=rectified),
             self.encode_range_type(self.get_range_type(coverage.range_type_id)),
             WCS("ServiceParameters",
                 WCS("CoverageSubtype", coverage.real_type.__name__)
@@ -530,7 +549,7 @@ class WCS20CoverageDescriptionXMLEncoder(GMLCOV10Encoder):
         ])
 
     def get_schema_locations(self):
-        return nsmap.schema_locations
+        return {ns_wcs.uri: ns_wcs.schema_location}
 
 
 class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20Encoder):
@@ -544,14 +563,20 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
                 earth_observation = etree.parse(f).getroot()
 
             if subset_polygon:
-                feature = earth_observation.xpath("eop:featureOfInterest")[0]
-                feature[0] = self.encode_footprint(
-                    subset_polygon, coverage.identifier
-                )
+                try:
+                    feature = earth_observation.xpath(
+                        "eop:featureOfInterest", namespaces=nsmap
+                    )[0]
+                    feature[0] = self.encode_footprint(
+                        coverage.footprint.intersection(subset_polygon),
+                        coverage.identifier
+                    )
+                except IndexError:
+                    pass # no featureOfInterest
 
         else:
             earth_observation = self.encode_earth_observation(
-                coverage, subset_polygon
+                coverage, subset_polygon=subset_polygon
             )
 
         if not request:
@@ -563,24 +588,24 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
                     self.encode_reference("Reference",
                         request.build_absolute_uri().replace("&", "&amp;")
                     )
-                )
+                ), GML("timePosition", isoformat(now()))
             )
         elif request.method == "POST": # TODO: better way to do this
             lineage = EOWCS("lineage",
                 EOWCS("referenceGetCoverage",
                     OWS("ServiceReference",
                         OWS("RequestMessage",
-                            etree.parse(request)
-                        )
+                            etree.parse(request).getroot()
+                        ), **{ns_xlink("href"): request.build_absolute_uri().replace("&", "&amp;")}
                     )
-                )
+                ), GML("timePosition", isoformat(now()))
             )
         
         return GMLCOV("metadata",
             GMLCOV("Extension",
                 EOWCS("EOMetadata",
                     earth_observation,
-                    *[lineage] if lineage else []
+                    *[lineage] if lineage is not None else []
                 )
             )
         )
@@ -593,10 +618,12 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
                 break
 
         if source_mime:
-            source_format = getFormatRegistry().getFormatByMIME(source_mime) 
-
+            source_format = getFormatRegistry().getFormatByMIME(source_mime)
             # map the source format to the native one 
-            native_format = getFormatRegistry().mapSourceToNativeWCS20(source_format) 
+            native_format = getFormatRegistry().mapSourceToNativeWCS20(source_format)
+        elif issubclass(coverage.real_type, RectifiedStitchedMosaic):
+            # use the default format for RectifiedStitchedMosaics
+            native_format = getFormatRegistry().getDefaultNativeFormat()
         else:
             # TODO: improve if no native format availabe
             native_format = None
@@ -610,11 +637,13 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
             extent = coverage.extent
             sr = coverage.spatial_reference
 
+        rectified = False if issubclass(coverage.real_type, ReferenceableDataset) else True
+
         return WCS("CoverageDescription",
             self.encode_bounded_by(extent, sr),
             WCS("CoverageId", coverage.identifier),
             self.encode_eo_metadata(coverage),
-            self.encode_domain_set(coverage, srid, size, extent),
+            self.encode_domain_set(coverage, srid, size, extent, rectified),
             self.encode_range_type(self.get_range_type(coverage.range_type_id)),
             WCS("ServiceParameters", 
                 WCS("CoverageSubtype", coverage.real_type.__name__),
@@ -643,14 +672,14 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
         return EOWCS("RectifiedDataset", *(
             tree.getchildren() +
             [self.encode_eo_metadata(coverage, request, subset_polygon)]
-        ))
+        ), **tree.attrib)
 
     def alter_rectified_stitched_mosaic(self, coverage, request, subset=None):
         return EOWCS("RectifiedStitchedMosaic", *(
             tree.getchildren() +
             [self.encode_eo_metadata(coverage, request, subset_polygon)]
             # TODO: contributing datasets
-        ))
+        ), **tree.attrib)
 
     def encode_referenceable_dataset(self, coverage, range_type, reference, 
                                      mime_type, subset=None):
@@ -666,19 +695,21 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
 
         else:
             # subset is given 
-            srid, size, extent, footprint = subset 
+            srid, size, extent, footprint = subset
+            srid = srid if srid is not None else 4326
 
             domain_set = self.encode_domain_set(
                 coverage, srid, size, extent, False
             )
             eo_metadata = self.encode_eo_metadata(
-                coverage, subset_footprint=footprint
+                coverage, subset_polygon=footprint
             )
 
             # get the WGS84 extent
             poly = Polygon.from_bbox(extent)
             poly.srid = srid
-            poly.transform(dst_srid)
+            if srid != dst_srid:
+                poly.transform(dst_srid)
             extent = poly.extent
             sr = SpatialReference(srid)
 
@@ -731,7 +762,4 @@ class WCS20EOXMLEncoder(WCS20CoverageDescriptionXMLEncoder, EOP20Encoder, OWS20E
         return root
 
     def get_schema_locations(self):
-        return nsmap.schema_locations
-
-
-
+        return {ns_eowcs.uri: ns_eowcs.schema_location}

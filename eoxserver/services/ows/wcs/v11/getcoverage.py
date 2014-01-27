@@ -52,7 +52,7 @@ class WCS11GetCoverageHandler(WCSGetCoverageHandlerBase, Component):
             return WCS11GetCoverageXMLDecoder(request.body)
 
 
-    def get_params(self, coverage, decoder):
+    def get_params(self, coverage, decoder, request):
         return WCS11CoverageRenderParams(
             coverage, decoder.boundingbox, decoder.format, decoder.gridcs, 
             decoder.gridbasecrs, decoder.gridtype, decoder.gridorigin, 
@@ -110,7 +110,7 @@ class WCS11GetCoverageKVPDecoder(kvp.Decoder):
 
 
 class WCS11GetCoverageXMLDecoder(xml.Decoder):
-    coverage_id = xml.Parameter("ows:Identifier/text()", num=1)
+    coverage_id = xml.Parameter("ows:Identifier/text()", type=str, num=1)
     boundingbox = xml.Parameter("wcs:DomainSubset/ows:BoundingBox", type=parse_bbox_xml, num=1)
     format = xml.Parameter("wcs:Output/@format", num=1)
     gridcs = xml.Parameter("wcs:Output/wcs:GridCRS/wcs:GridCS/text()", num="?")

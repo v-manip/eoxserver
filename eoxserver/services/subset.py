@@ -28,7 +28,9 @@
 
 
 import logging
+from datetime import datetime
 
+from django.utils.timezone import is_aware, make_aware, utc
 from django.utils.dateparse import parse_datetime, parse_date
 from django.contrib.gis.geos import Polygon
 
@@ -340,16 +342,17 @@ class Subsets(list):
 
         subset_srid = self.xy_srid
 
-        if subset_srid == "imageCRS":
-            bbox = extent
+        if subset_srid is None:
+            bbox = list(extent)
         else:
-            bbox = footprint.extent
+            bbox = list(footprint.extent)
 
         for subset in self:
             if not isinstance(subset, Trim) or subset.is_temporal:
                 continue
 
-            if subset_srid == "imageCRS":
+            if subset_srid is None:
+                # transform coordinates from imageCRS to coverages CRS
                 if subset.is_x:
                     if subset.low is not None:
                         l = max(float(subset.low) / float(size_x), 0.0)
@@ -383,7 +386,7 @@ class Subsets(list):
                     if subset.high is not None:
                         bbox[3] = min(subset.high, bbox[3])
 
-        if subset_srid == "imageCRS":
+        if subset_srid is None:
             poly = Polygon.from_bbox(bbox)
             poly.srid = srid
 
@@ -427,15 +430,25 @@ class Trim(Subset):
     def __init__(self, axis, low=None, high=None, crs=None):
         super(Trim, self).__init__(axis, crs)
         dt = parse_quoted_temporal if self.is_temporal else float_or_star
-        self.low = dt(low)
-        self.high = dt(high)
+        
+        low = dt(low)
+        high = dt(high)
+
+        if low is not None and high is not None and low > high:
+            raise InvalidSubsettingException(
+                "Invalid bounds: lower bound greater than upper bound."
+            )
+
+        self.low = low
+        self.high = high
 
 
 
 temporal_axes = ("t", "time", "phenomenontime")
 x_axes = ("x", "lon", "long")
 y_axes = ("y", "lat")
-all_axes = temporal_axes + x_axes + y_axes
+z_axes = ("z", "height")
+all_axes = temporal_axes + x_axes + y_axes + z_axes
 
 
 def float_or_star(value):
@@ -462,6 +475,14 @@ def parse_quoted_temporal(value):
     for parser in (parse_datetime, parse_date):
         temporal = parser(value)
         if temporal:
+            # convert to datetime if necessary
+            if not isinstance(temporal, datetime):
+                temporal = datetime.combine(temporal, datetime.min.time())
+
+            # use UTC, if the datetime is not already time-zone aware
+            if not is_aware(temporal):
+                temporal = make_aware(temporal, utc)
+            
             return temporal
 
     raise ValueError("Could not parse '%s' to a temporal value" % value)

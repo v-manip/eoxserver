@@ -34,12 +34,16 @@ from eoxserver.core.config import get_eoxserver_config
 from eoxserver.core.decoders import config
 from eoxserver.contrib import mapserver as ms
 from eoxserver.resources.coverages import crss
+from eoxserver.resources.coverages.models import RectifiedStitchedMosaic
 from eoxserver.resources.coverages.formats import getFormatRegistry
 
 
 class WCSConfigReader(config.Reader):
     section = "services.ows.wcs"
     maxsize = config.Option(type=int, default=None)
+
+    section = "services.ows"
+    update_sequence = config.Option(default="0")
 
 
 class BaseRenderer(Component):
@@ -53,6 +57,7 @@ class BaseRenderer(Component):
         maxsize = WCSConfigReader(get_eoxserver_config()).maxsize
         if maxsize is not None:
             map_.maxsize = maxsize
+        map_.setMetaData("ows_updateSequence", WCSConfigReader(get_eoxserver_config()).update_sequence)
         return map_
 
     def data_items_for_coverage(self, coverage):
@@ -100,7 +105,7 @@ class BaseRenderer(Component):
             "rangeset_name": range_type.name,
             "rangeset_label": range_type.name,
             "imagemode": ms.gdalconst_to_imagemode_string(bands[0].data_type),
-            "formats": " ".join([f.mimeType for f in self.get_wcs_formats()])
+            "formats": " ".join([f.wcs10name if version.startswith("1.0") else f.mimeType for f in self.get_wcs_formats()])
         }, namespace="wcs")
 
         if version == None or version.startswith("2.0"):
@@ -113,6 +118,8 @@ class BaseRenderer(Component):
             }, namespace="wcs")
 
         if native_format:
+            if version.startswith("1.0"):
+                native_format = next((x.wcs10name for x in self.get_wcs_formats() if x.mimeType == native_format), native_format)
             ms.setMetaData(layer, {
                 "native_format": native_format,
                 "nativeformat": native_format
@@ -141,6 +148,10 @@ class BaseRenderer(Component):
 
 
     def get_native_format(self, coverage, data_items):
+        if issubclass(coverage.real_type, RectifiedStitchedMosaic):
+            # use the default format for RectifiedStitchedMosaics
+            return getFormatRegistry().getDefaultNativeFormat().wcs10name
+
         if len(data_items) == 1:
             return data_items[0].format
 

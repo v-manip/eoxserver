@@ -1,5 +1,4 @@
 #-------------------------------------------------------------------------------
-# $Id$
 #
 # Project: EOxServer <http://eoxserver.org>
 # Authors: Fabian Schindler <fabian.schindler@eox.at>
@@ -10,8 +9,8 @@
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
 # in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
-# copies of the Software, and to permit persons to whom the Software is 
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
 # The above copyright notice and this permission notice shall be included in all
@@ -25,7 +24,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
-
 
 """\
 This module contains a set of handler base classes which shall help to implement
@@ -63,7 +61,7 @@ class WCSGetCapabilitiesHandlerBase(object):
         """ Default implementation of the coverage lookup. Simply returns all 
             coverages in no specific order.
         """
-        return models.Coverage.objects.all()
+        return models.Coverage.objects.filter(visible=True)
 
     def get_params(self, coverages, decoder):
         """ Default method to return a render params object from the given 
@@ -221,7 +219,7 @@ class WCSGetCoverageHandlerBase(object):
 
         return coverage
 
-    def get_params(self, coverages, decoder):
+    def get_params(self, coverages, decoder, request):
         """ Interface method to return a render params object from the given 
             coverages/decoder.
         """
@@ -254,7 +252,7 @@ class WCSGetCoverageHandlerBase(object):
         coverage = self.lookup_coverage(decoder)
 
         # create the render params
-        params = self.get_params(coverage, decoder)
+        params = self.get_params(coverage, decoder, request)
 
         # get the renderer
         renderer = self.get_renderer(params)
