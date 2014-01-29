@@ -790,3 +790,64 @@ class DatasetSeries(Collection):
         return
 
 EO_OBJECT_TYPE_REGISTRY[30] = DatasetSeries
+
+
+#===============================================================================
+# Coverages containing vertical axes
+#===============================================================================
+
+
+class VerticalCoverage(Coverage):
+    vertical_cs_id = models.PositiveIntegerField()
+
+    min_z = models.FloatField()
+    max_z = models.FloatField()
+
+    num_height_levels = models.PositiveIntegerField(null=True, blank=True)
+
+
+    @property
+    def extent_3d(self):
+        return (
+            self.min_x, self.min_y, self.min_z,
+            self.max_x, self.max_y, self.max_y
+        )
+
+'''    @property
+    def height_levels(self):
+        """ Returns a list containing all height levels. If the height levels 
+            number is specified directly, the list is composed of values 
+            linearily interpolated between min_z and max_z
+        """
+        if self.num_levels is not None:
+            step = (self.max_z - self.min_z) / (self.num_height_levels - 1)
+            return [
+                self.min_z + (step * i) for i in xrange(self.num_levels)
+            ]
+
+        else:
+            return list(
+                self._height_levels
+                    .order_by("value")
+                    .values_list("value", flat=True)
+            )
+
+
+class HeightLevel(models.Model):
+    coverage = models.ForeignKey(VerticalCoverage, related_name="_height_levels")
+    value = models.FloatField()
+'''
+
+class CubeCoverage(VerticalCoverage):
+    objects = models.GeoManager()
+
+EO_OBJECT_TYPE_REGISTRY[40] = CubeCoverage
+
+class CurtainCoverage(VerticalCoverage):
+    look_angle = models.FloatField()
+    ground_path = models.LineStringField()
+
+    objects = models.GeoManager()
+
+EO_OBJECT_TYPE_REGISTRY[41] = CurtainCoverage
+
