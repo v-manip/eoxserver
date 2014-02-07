@@ -84,7 +84,7 @@ class RandomProcess(Component):
             #values = [coverage.identifier, isoformat(coverage.begin_time), isoformat(coverage.end_time)] + [None] * len(points)
             values = [collection] + [None] * 4
 
-            data_item = coverage.data_items.get(semantic__startswith="SPOT4")
+            data_item = coverage.data_items.get(semantic__startswith="bands")
             print data_item
             filename = connect(data_item)
             ds = gdal.Open(filename)
