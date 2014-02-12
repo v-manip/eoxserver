@@ -46,12 +46,12 @@ class RandomProcess(Component):
         """
         col_name = collection
         collection = models.Collection.objects.get(identifier=collection)
-        eo_objects = collection.eo_objects.exclude(
-            begin_time__gt=end_time, end_time__lt=begin_time
+
+        eo_objects = collection.eo_objects.filter(
+            begin_time__lte=end_time, end_time__gte=begin_time
         )
 
         coordinates = coord_list.split(';')
-        print coordinates
 
         points = []
         for coordinate in coordinates:
@@ -64,13 +64,10 @@ class RandomProcess(Component):
         points = MultiPoint(points)
         points.srid = srid
 
-        print collection, begin_time, end_time
 
         eo_objects = eo_objects.filter(
             footprint__intersects=points
         )
-
-        print eo_objects
 
         output = StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_ALL)
@@ -85,7 +82,6 @@ class RandomProcess(Component):
             values = [collection] + [None] * 4
 
             data_item = coverage.data_items.get(semantic__startswith="bands")
-            print data_item
             filename = connect(data_item)
             ds = gdal.Open(filename)
             sr = SpatialReference(ds.GetProjection())
@@ -96,7 +92,6 @@ class RandomProcess(Component):
                 if not coverage.footprint.contains(point):
                     continue
 
-                print "Point in coverage"
                 gt = ds.GetGeoTransform()
 
                 point.transform(sr)
