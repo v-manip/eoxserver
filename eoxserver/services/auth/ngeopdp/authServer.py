@@ -96,7 +96,7 @@ class PolicyReader(object):
   
     try:
       #read rights of the user from the policy file
-      policyFile = "%s/%s" % (os.path.dirname( __file__ ), POLICYFILE)
+      policyFile = "%s/%s" % (os.path.dirname(os.path.abspath( __file__ )), POLICYFILE)
       root = ElementTree.parse(policyFile)
       
       for user in root.findall('User'):      
