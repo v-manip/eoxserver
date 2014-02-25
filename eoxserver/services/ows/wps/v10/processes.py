@@ -9,6 +9,7 @@ from StringIO import StringIO
 
 from django.contrib.gis.geos import Point, MultiPoint
 from django.contrib.gis.gdal import SpatialReference
+from django.db.models import Q
 
 from eoxserver.core import Component, ExtensionPoint, implements
 from eoxserver.core.util.timetools import isoformat
@@ -17,6 +18,7 @@ from eoxserver.backends.access import connect
 from eoxserver.services.ows.wps.interfaces import ProcessInterface
 from eoxserver.services.ows.wps.parameters import LiteralData, ComplexData
 from eoxserver.resources.coverages import models
+from eoxserver.services.subset import Subsets, Trim
 
 
 
@@ -115,3 +117,107 @@ class RandomProcess(Component):
         return {
             "processed": output.getvalue()
         }
+
+
+
+
+class GetTimeDataProcess(Component):
+    implements(ProcessInterface)
+
+    identifier = "getTimeData"
+    title = "Retrieves time information about a collection"
+    description = "Creates csv output of coverage time information of collections."
+    metadata = ["a", "b"]
+    profiles = ["p", "q"]
+
+    inputs = {
+        "collection": str,
+        "begin_time": datetime,
+        "end_time": datetime,
+        "bbox": str,
+        "srid": int
+    }
+
+    outputs = {
+        "times": str
+    }
+
+    def execute(self, collection, begin_time, end_time, bbox, srid):
+        """ The main execution function for the process.
+        """
+
+        eo_ids = [collection]
+
+        
+        containment = "overlaps"
+
+        subsets = Subsets((Trim("t", '"%s"' % isoformat(begin_time), '"%s"' %  isoformat(end_time)),))
+
+
+        if len(eo_ids) == 0:
+            raise
+
+        # fetch a list of all requested EOObjects
+        available_ids = models.EOObject.objects.filter(
+            identifier__in=eo_ids
+        ).values_list("identifier", flat=True)
+
+        # match the requested EOIDs against the available ones. If any are
+        # requested, that are not available, raise and exit.
+        failed = [ eo_id for eo_id in eo_ids if eo_id not in available_ids ]
+        if failed:
+            raise NoSuchDatasetSeriesOrCoverageException(failed)
+
+        collections_qs = subsets.filter(models.Collection.objects.filter(
+            identifier__in=eo_ids
+        ), containment="overlaps")
+
+        # create a set of all indirectly referenced containers by iterating
+        # recursively. The containment is set to "overlaps", to also include 
+        # collections that might have been excluded with "contains" but would 
+        # have matching coverages inserted.
+
+        def recursive_lookup(super_collection, collection_set):
+            sub_collections = models.Collection.objects.filter(
+                collections__in=[super_collection.pk]
+            ).exclude(
+                pk__in=map(lambda c: c.pk, collection_set)
+            )
+            sub_collections = subsets.filter(sub_collections, "overlaps")
+
+            # Add all to the set
+            collection_set |= set(sub_collections)
+
+            for sub_collection in sub_collections:
+                recursive_lookup(sub_collection, collection_set)
+
+        collection_set = set(collections_qs)
+        for collection in set(collection_set):
+            recursive_lookup(collection, collection_set)
+
+        collection_pks = map(lambda c: c.pk, collection_set)
+
+        # Get all either directly referenced coverages or coverages that are
+        # within referenced containers. Full subsetting is applied here.
+
+        coverages_qs = subsets.filter(models.Coverage.objects.filter(
+            Q(identifier__in=eo_ids) | Q(collections__in=collection_pks)
+        ), containment=containment)
+
+       
+
+        output = StringIO()
+        writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+        header = ["starttime", "endtime", "bbox", "identifier" ]
+        writer.writerow(header)
+
+        for coverage in coverages_qs:
+            starttime = coverage.begin_time
+            endtime = coverage.end_time
+            identifier = coverage.identifier
+            bbox = coverage.extent_wgs84
+            writer.writerow([isoformat(starttime), isoformat(endtime), bbox, identifier])
+
+
+        return output.getvalue()
+        
