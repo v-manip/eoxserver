@@ -133,16 +133,14 @@ class GetTimeDataProcess(Component):
     inputs = {
         "collection": str,
         "begin_time": datetime,
-        "end_time": datetime,
-        "bbox": str,
-        "srid": int
+        "end_time": datetime
     }
 
     outputs = {
         "times": str
     }
 
-    def execute(self, collection, begin_time, end_time, bbox, srid):
+    def execute(self, collection, begin_time, end_time):
         """ The main execution function for the process.
         """
 
