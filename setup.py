@@ -135,7 +135,7 @@ else:
         sys.argv.remove("--disable-extended-reftools")
 
 setup(
-    name='EOxServer',
+    name='EOxServer_vmanip',
     version=version.replace(' ', '-'),
     packages=packages,
     data_files=data_files,
