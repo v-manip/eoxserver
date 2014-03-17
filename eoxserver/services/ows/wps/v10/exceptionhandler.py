@@ -1,12 +1,11 @@
 #-------------------------------------------------------------------------------
+# $Id$
 #
 # Project: EOxServer <http://eoxserver.org>
-# Authors: Stephan Krause <stephan.krause@eox.at>
-#          Stephan Meissl <stephan.meissl@eox.at>
-#          Fabian Schindler <fabian.schindler@eox.at>
+# Authors: Fabian Schindler <fabian.schindler@eox.at>
 #
 #-------------------------------------------------------------------------------
-# Copyright (C) 2011 EOX IT Services GmbH
+# Copyright (C) 2013 EOX IT Services GmbH
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,18 +26,3 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from eoxserver.resources.coverages.management.commands import ManageDatasetSeriesCommand 
-
-class Command(ManageDatasetSeriesCommand): 
-
-    help=("Insert one or more datasets (DS) into one or more specified dataset"
-    " series (DSS).")
-
-    def manage_series(self, manager, dataset_ids, datasetseries_ids):
-        """Main method for dataset handling."""
-
-        #TODO: check if the datasets have not been already inserted 
-
-        for dssid in datasetseries_ids:
-
-            manager.update( obj_id=dssid, link={"coverage_ids":dataset_ids}) 

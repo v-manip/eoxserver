@@ -26,29 +26,44 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from eoxserver.services.ows.common.v20.encoders import OWS20ExceptionXMLEncoder
+
+from eoxserver.core import Component, ExtensionPoint, implements
+from eoxserver.core.decoders import kvp, xml, typelist
+from eoxserver.services.ows.interfaces import (
+    ServiceHandlerInterface, GetServiceHandlerInterface, 
+    PostServiceHandlerInterface, VersionNegotiationInterface
+)
+from eoxserver.services.ows.wps.interfaces import ProcessInterface
+from eoxserver.services.ows.wps.v10.encoders import WPS10CapabilitiesXMLEncoder
+from eoxserver.services.ows.wps.v10.util import nsmap
 
 
-class OWS20ExceptionHandler(object):
-    """ A Fallback exception handler. This class does on purpose not implement
-        the ExceptionHandlerInterface and must be instantiated manually.
-    """
+class WPS10GetCapabilitiesHandler(Component):
+    implements(ServiceHandlerInterface)
+    implements(GetServiceHandlerInterface)
+    implements(PostServiceHandlerInterface)
+    implements(VersionNegotiationInterface)
 
-    def handle_exception(self, request, exception):
-        message = str(exception)
-        version = "2.0.0"
-        # NOTE: An existing 'code' attribute can be set to None value!!!
-        code = getattr(exception, "code", None) or "NoApplicableCode"
-        locator = getattr(exception, "locator", None)
-        status_code = 400
+    service = "WPS"
+    versions = ("1.0.0",)
+    request = "GetCapabilities"
 
-        encoder = OWS20ExceptionXMLEncoder()
+    processes = ExtensionPoint(ProcessInterface)
 
-        return (
-            encoder.serialize(
-                encoder.encode_exception(message, version, code, locator)
-            ),
-            encoder.content_type,
-            status_code
-        )
 
+    def handle(self, request):
+        encoder = WPS10CapabilitiesXMLEncoder()
+        return encoder.serialize(
+            encoder.encode_capabilities(self.processes)
+        ), encoder.content_type
+
+
+class WPS10GetCapabilitiesKVPDecoder(kvp.Decoder):
+    #acceptversions = kvp.Parameter(type=typelist(str, ","), num="?")
+    language       = kvp.Parameter(num="?")
+
+class WPS10GetCapabilitiesXMLDecoder(xml.Decoder):
+    #acceptversions = xml.Parameter("/ows:AcceptVersions/ows:Version/text()", num="*")
+    language = xml.Parameter("/ows:AcceptLanguages/ows:Language/text()", num="*")
+
+    namespaces = nsmap

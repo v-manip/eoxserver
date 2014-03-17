@@ -1,12 +1,11 @@
 #-------------------------------------------------------------------------------
+# $Id$
 #
 # Project: EOxServer <http://eoxserver.org>
-# Authors: Stephan Krause <stephan.krause@eox.at>
-#          Stephan Meissl <stephan.meissl@eox.at>
-#          Fabian Schindler <fabian.schindler@eox.at>
+# Authors: Fabian Schindler <fabian.schindler@eox.at>
 #
 #-------------------------------------------------------------------------------
-# Copyright (C) 2011 EOX IT Services GmbH
+# Copyright (C) 2013 EOX IT Services GmbH
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,18 +26,20 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from eoxserver.resources.coverages.management.commands import ManageDatasetSeriesCommand 
 
-class Command(ManageDatasetSeriesCommand): 
+class NoSuchProcessException(Exception):
+    code = "NoSuchProcess"
+    locator = "identifier"
+    
+    def __init__(self, identifiers):
+        self.identifiers = identifiers
 
-    help=("Remove one or more datasets (DS) from one or more specified dataset"
-    " series (DSS).")
+    def __str__(self):
+        return "No such process%s: %s" % (
+            "" if not len(self.identifiers) else "es",
+            ", ".join(map(lambda s: "'%s'" % s, self.identifiers))
+        )
 
-    def manage_series(self, manager, dataset_ids, datasetseries_ids):
-        """Main method for dataset handling."""
 
-        #TODO: check if the removed datasets are contained by the series
-
-        for dssid in datasetseries_ids:
-
-            manager.update( obj_id=dssid, unlink={"coverage_ids":dataset_ids}) 
+class ReferenceException(Exception):
+    pass

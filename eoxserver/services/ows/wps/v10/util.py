@@ -3,10 +3,9 @@
 #
 # Project: EOxServer <http://eoxserver.org>
 # Authors: Fabian Schindler <fabian.schindler@eox.at>
-#          Martin Paces <martin.paces@eox.at>
 #
 #-------------------------------------------------------------------------------
-# Copyright (C) 2011-2014 EOX IT Services GmbH
+# Copyright (C) 2013 EOX IT Services GmbH
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,12 +26,26 @@
 # THE SOFTWARE.
 #-------------------------------------------------------------------------------
 
-from eoxserver.resources.coverages import models
-from eoxserver.services.mapserver.wms.layerfactories.base import (
-    BaseCoverageLayerFactory
+
+import re
+
+from lxml.builder import ElementMaker
+
+from eoxserver.core.util.xmltools import NameSpace, NameSpaceMap, ns_xsi
+from eoxserver.services.subset import Trim, Slice
+from eoxserver.services.ows.common.v11.encoders import (
+    ns_xlink, ns_xml, ns_ows, OWS
+)
+from eoxserver.services.exceptions import InvalidSubsettingException
+
+
+# namespace declarations
+ns_wps = NameSpace("http://www.opengis.net/wps/1.0.0", "wps", "http://schemas.opengis.net/wps/1.0.0/wpsAll.xsd")
+
+# namespace map
+nsmap = NameSpaceMap(
+    ns_xlink, ns_xml, ns_ows, ns_wps
 )
 
-class CoverageLayerFactory(BaseCoverageLayerFactory) :
-    handles = (models.RectifiedDataset, models.RectifiedStitchedMosaic)
-    suffixes = (None,)
-    requires_connection = True
+# Element factories
+WPS = ElementMaker(namespace=ns_wps.uri, nsmap=nsmap)
