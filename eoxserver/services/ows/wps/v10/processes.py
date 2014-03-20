@@ -149,7 +149,7 @@ class GetTimeDataProcess(Component):
         
         containment = "overlaps"
 
-        subsets = Subsets((Trim("t", '"%s"' % isoformat(begin_time), '"%s"' %  isoformat(end_time)),))
+        subsets = Subsets((Trim("t", begin_time, end_time),))
 
 
         if len(eo_ids) == 0:
