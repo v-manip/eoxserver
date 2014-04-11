@@ -285,7 +285,11 @@ class PreProcessor(object):
             feature = layer.GetNextFeature()
             geometry = feature.GetGeometryRef()
         
-        if geometry.GetGeometryType() != ogr.wkbPolygon:
+
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(geometry.ExportToWkt())
+        if geometry.GetGeometryType() not in (ogr.wkbPolygon, ogr.wkbMultiPolygon):
             raise RuntimeError("Error during poligonization. Wrong geometry "
                                "type.")
         
