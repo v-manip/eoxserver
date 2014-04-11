@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<V-MANIP-Policy>
+  <User Id="musterfrau">
+    <Rights>
+      <BrowseLayerId>SAR_L1_BROW</BrowseLayerId>
+      <BrowseLayerId>SAR_L2_BROW</BrowseLayerId>
+      <BrowseLayerId>SAR_L3_BROW</BrowseLayerId>
+    </Rights>
+  </User>
+  <User Id="mustermann">
+    <Rights>
+      <BrowseLayerId>SAR_L3_BROW</BrowseLayerId>
+    </Rights>
+  </User>
+  <User Id="hacker">
+    <Rights>
+    </Rights>
+  </User>
+</V-MANIP-Policy>
