@@ -37,7 +37,11 @@ class NgeoPEP(Component):
       userId = request.META['uid']
     
       #TODO: the browseLayerId must be parsed in future by a specialized eoxserver decoder class
-      browseLayerId = request.GET.get("BrowseLayer", "empty")
+      browseLayerId = request.GET.get(name__iexact="layer", "empty")
+      logger.debug("the layer id=[%s]" % (browseLayerId))
+      if (browseLayerId == "empty"):
+        browseLayerId = request.GET.get(name__iexact="layers", "empty")
+        logger.debug("the layer id=[%s]" % (browseLayerId))
      
       logger.debug("Extracted authorization information: uid=[%s], browse layer id=[%s]" % (userId, browseLayerId))
       

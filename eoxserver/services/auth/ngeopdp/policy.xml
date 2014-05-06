@@ -16,4 +16,16 @@
     <Rights>
     </Rights>
   </User>
+  <User Id="demo">
+    <Rights>
+      <BrowseLayerId>Cloudsat</BrowseLayerId>
+      <BrowseLayerId>TEST_SAR</BrowseLayerId>
+    </Rights>
+  </User>
+  <User Id="santilland">
+    <Rights>
+      <BrowseLayerId>Cloudsat</BrowseLayerId>
+      <BrowseLayerId>SAR_L2_BROW</BrowseLayerId>
+    </Rights>
+  </User>
 </V-MANIP-Policy>
