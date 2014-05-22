@@ -440,6 +440,6 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
        
     else:
         os.remove(filename_tif)
-        #os.remove(filename_png)
+        os.remove(filename_png)
 
     return output
