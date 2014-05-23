@@ -390,7 +390,7 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
     builder.dataset.GetRasterBand(1).ReadAsArray()
 
     pix_master = builder.dataset.GetRasterBand(1).ReadAsArray()
-    pix_slave = builder.dataset.GetRasterBand(4).ReadAsArray()
+    pix_slave = builder.dataset.GetRasterBand(num_bands +1).ReadAsArray()
 
     for i in range(2, num_bands+1):
         pix_master = np.dstack((pix_master, builder.dataset.GetRasterBand(i).ReadAsArray()))
@@ -398,10 +398,15 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
 
     print pix_master.shape, pix_slave.shape
 
+    # def _diff(a,b):
+    #     c = np.zeros((a.shape[0],a.shape[1]))
+    #     for i in xrange(a.shape[2]):
+    #         c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
+    #     return np.sqrt(c)
+
     def _diff(a,b):
         c = np.zeros((a.shape[0],a.shape[1]))
-        for i in xrange(a.shape[2]):
-            c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
+        c[:,:] += ( a[:,:] - b[:,:] )**2
         return np.sqrt(c)
 
     pix_res = _diff(pix_master, pix_slave)
