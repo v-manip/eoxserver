@@ -358,11 +358,11 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
     res_x_master = (master_bbox[2] - master_bbox[0]) / ds_master.RasterXSize
     res_y_master = (master_bbox[1] - master_bbox[3]) / ds_master.RasterYSize
 
-    res_x_slave = abs(slave_bbox[2] - slave_bbox[0]) / ds_slave.RasterXSize
-    res_y_slave = abs(slave_bbox[1] - slave_bbox[3]) / ds_slave.RasterYSize
+    res_x_slave = (slave_bbox[2] - slave_bbox[0]) / ds_slave.RasterXSize
+    res_y_slave = (slave_bbox[1] - slave_bbox[3]) / ds_slave.RasterYSize
 
-    size_x = abs(int((bbox[2]-bbox[0])/res_x_master))
-    size_y = abs(int((bbox[1]-bbox[3])/res_y_master))
+    size_x = (int((bbox[2]-bbox[0])/res_x_master))
+    size_y = (int((bbox[1]-bbox[3])/res_y_master))
 
     builder = VRTBuilder(size_x, size_y, (num_bands*2))
 
@@ -387,8 +387,7 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
 
     ext = Rect(0,0,size_x, size_y)
 
-    builder.dataset.GetRasterBand(1).ReadAsArray()
-
+    
     pix_master = builder.dataset.GetRasterBand(1).ReadAsArray()
     pix_slave = builder.dataset.GetRasterBand(num_bands +1).ReadAsArray()
 
