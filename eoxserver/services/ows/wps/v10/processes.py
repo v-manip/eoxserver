@@ -398,15 +398,10 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
 
     print pix_master.shape, pix_slave.shape
 
-    # def _diff(a,b):
-    #     c = np.zeros((a.shape[0],a.shape[1]))
-    #     for i in xrange(a.shape[2]):
-    #         c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
-    #     return np.sqrt(c)
-
     def _diff(a,b):
         c = np.zeros((a.shape[0],a.shape[1]))
-        c[:,:] += ( a[:,:] - b[:,:] )**2
+        for i in xrange(a.shape[2]):
+            c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
         return np.sqrt(c)
 
     pix_res = _diff(pix_master, pix_slave)
