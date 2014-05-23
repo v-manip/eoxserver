@@ -404,20 +404,29 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
     #    return np.sqrt(c)
 
     def _diff(a,b):
+
         c = np.zeros((a.shape[0],a.shape[1],3))
-        c[:,:,0] = a[:,:,0]
-        c[:,:,1] = np.min(a[:,:,0],b[:,:,0])
-        c[:,:,2] = b[:,:,0]
+
+        d = np.array(a[:,:,0],'float32') - np.array(b[:,:,0],'float32')
+        
+        idx = ( d > 0 ).nonzero()
+        tmp = np.zeros((a.shape[0],a.shape[1]))
+        tmp[idx] = d[idx]
+        c[:,:,0] = tmp
+
+        idx = ( d < 0 ).nonzero()
+        tmp = np.zeros((a.shape[0],a.shape[1]))
+        tmp[idx] = -d[idx]
+        c[:,:,2] = tmp
+        
         return c
 
     pix_res = _diff(pix_master, pix_slave)
     
-
-
     max_pix = np.max(pix_res)
     scale = 254.0/max_pix if max_pix > 0 else 1.0
 
-    #pix_res = np.array(pix_res*scale+1,'uint8')
+    pix_res = np.array(pix_res*scale+1,'uint8')
 
     # the output image
 
