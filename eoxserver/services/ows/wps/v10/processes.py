@@ -362,7 +362,7 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
     res_y_slave = abs(slave_bbox[1] - slave_bbox[3]) / ds_slave.RasterYSize
 
     size_x = abs(int((bbox[2]-bbox[0])/res_x_master))
-    size_y = abs(int((bbox[3]-bbox[1])/res_y_master))
+    size_y = abs(int((bbox[1]-bbox[3])/res_y_master))
 
     builder = VRTBuilder(size_x, size_y, (num_bands*2))
 
