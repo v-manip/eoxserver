@@ -3,6 +3,7 @@
 import os 
 import os.path
 import math
+import base64
 from uuid import uuid4
 from datetime import datetime
 import struct
@@ -442,4 +443,4 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
         os.remove(filename_tif)
         os.remove(filename_png)
 
-    return output
+    return base64.b64encode(output)
