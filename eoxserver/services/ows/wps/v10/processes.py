@@ -356,13 +356,13 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
     slave_bbox = slave.footprint.extent
 
     res_x_master = (master_bbox[2] - master_bbox[0]) / ds_master.RasterXSize
-    res_y_master = (master_bbox[1] - master_bbox[3]) / ds_master.RasterYSize
+    res_y_master = (master_bbox[3] - master_bbox[1]) / ds_master.RasterYSize
 
     res_x_slave = (slave_bbox[2] - slave_bbox[0]) / ds_slave.RasterXSize
-    res_y_slave = (slave_bbox[1] - slave_bbox[3]) / ds_slave.RasterYSize
+    res_y_slave = (slave_bbox[3] - slave_bbox[1]) / ds_slave.RasterYSize
 
-    size_x = (int((bbox[2]-bbox[0])/res_x_master))
-    size_y = (int((bbox[1]-bbox[3])/res_y_master))
+    size_x = int((bbox[2]-bbox[0])/res_x_master)
+    size_y = int((bbox[3]-bbox[1])/res_y_master)
 
     builder = VRTBuilder(size_x, size_y, (num_bands*2))
 
@@ -397,18 +397,27 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
 
     print pix_master.shape, pix_slave.shape
 
+    #def _diff(a,b):
+    #    c = np.zeros((a.shape[0],a.shape[1]))
+    #    for i in xrange(a.shape[2]):
+    #        c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
+    #    return np.sqrt(c)
+
     def _diff(a,b):
-        c = np.zeros((a.shape[0],a.shape[1]))
-        for i in xrange(a.shape[2]):
-            c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
-        return np.sqrt(c)
+        c = np.zeros((a.shape[0],a.shape[1],3))
+        c[:,:,0] = a[:,:,0]
+        c[:,:,1] = np.min(a[:,:,0],b[:,:,0])
+        c[:,:,2] = b[:,:,0]
+        return c
 
     pix_res = _diff(pix_master, pix_slave)
+    
+
 
     max_pix = np.max(pix_res)
     scale = 254.0/max_pix if max_pix > 0 else 1.0
 
-    pix_res = np.array(pix_res*scale+1,'uint8')
+    #pix_res = np.array(pix_res*scale+1,'uint8')
 
     # the output image
 
@@ -421,8 +430,10 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
 
     try:
      
-        ds_tif = driver_tif.Create(filename_tif,ext.size_x,ext.size_y,1,gdal.GDT_Byte)
-        ds_tif.GetRasterBand(1).WriteArray(pix_res,0,0)
+        ds_tif = driver_tif.Create(filename_tif,ext.size_x,ext.size_y,3,gdal.GDT_Byte)
+        ds_tif.GetRasterBand(1).WriteArray(pix_res[:,:,0],0,0)
+        ds_tif.GetRasterBand(2).WriteArray(pix_res[:,:,1],0,0)
+        ds_tif.GetRasterBand(3).WriteArray(pix_res[:,:,2],0,0)
 
         ds_png = driver_png.CreateCopy( filename_png, ds_tif, 0 )
         
