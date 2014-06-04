@@ -571,7 +571,7 @@ class GetVolumePixelValues(Component):
 
         output = StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_ALL)
-        header = ["id", "Height (m)", "Value", "Size" ]
+        header = ["id", "Value", "Height (m)", "Size" ]
         writer.writerow(header)
 
         for eo_object in eo_objects:
@@ -619,7 +619,7 @@ class GetVolumePixelValues(Component):
                 for i in range(1, ds.RasterCount+1):
                     pixelVal = ds.GetRasterBand(i).ReadAsArray(px,py,1,1)[0,0]
                     print pixelVal
-                    writer.writerow([ str(coverage.identifier)[:-27], heightLevelsList[i-1], pixelVal, 1 ])
+                    writer.writerow([ str(coverage.identifier)[:-27], pixelVal, heightLevelsList[i-1], 3 ])
 
                 
 
