@@ -727,7 +727,7 @@ class GetValuesThroughTime(Component):
 
         eo_objects = coverages_qs.filter(
             footprint__intersects=points
-        )
+        ).order_by('begin_date')
 
         output = StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_NONE)
