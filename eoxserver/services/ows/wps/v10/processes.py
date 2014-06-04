@@ -744,15 +744,6 @@ class GetValuesThroughTime(Component):
             filename = connect(data_item)
             ds = gdal.Open(filename)
 
-            height_values_item = coverage.data_items.get(
-                semantic__startswith="heightvalues"
-            )
-
-            with open(height_values_item.location) as f:
-                height_values = json.load(f)
-            heightLevelsList=np.array(height_values)
-
-
             if ds.GetProjection():
                 gt = ds.GetGeoTransform()
                 sr = SpatialReference(ds.GetProjection())
