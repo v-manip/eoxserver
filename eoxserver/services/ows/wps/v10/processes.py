@@ -730,7 +730,7 @@ class GetValuesThroughTime(Component):
         )
 
         output = StringIO()
-        writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+        writer = csv.writer(output, quoting=csv.QUOTE_NONE)
         header = ["id", "time", "val"]
         writer.writerow(header)
 
@@ -738,7 +738,10 @@ class GetValuesThroughTime(Component):
 
             coverage = eo_object.cast()
 
-            time =  coverage.begin_time.isoformat("T")
+            #layer = models.DatasetSeries.objects.get(identifier__in=coverage.identifier)
+            layer = eo_object.collections.all()[0]
+
+            time =  isoformat(coverage.begin_time)
 
             data_item = coverage.data_items.get(semantic__startswith="bands")
             filename = connect(data_item)
@@ -770,7 +773,7 @@ class GetValuesThroughTime(Component):
 
                
                 pixelVal = ds.GetRasterBand(1).ReadAsArray(px,py,1,1)[0,0]
-                writer.writerow([ str(coverage.identifier)[:-27], time, pixelVal])
+                writer.writerow([ str(layer.identifier), time, pixelVal])
 
                 
 
