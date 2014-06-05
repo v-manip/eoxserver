@@ -332,7 +332,7 @@ class GetCoverageDifference(Component):
 
 
         return {
-            "processed": diff_process(self, coverages_qs[0].identifier, coverages_qs[1].identifier, bbox, 3, crs)
+            "processed": diff_process(self, coverages_qs[0].identifier, coverages_qs[1].identifier, bbox, 1, crs)
         }
 
 
