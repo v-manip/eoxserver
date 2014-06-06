@@ -622,7 +622,8 @@ class GetVolumePixelValues(Component):
                
                 for i in range(1, ds.RasterCount+1):
                     pixelVal = ds.GetRasterBand(i).ReadAsArray(px,py,1,1)[0,0]
-                    writer.writerow([ str(coverage.identifier)[:-27], pixelVal, heightLevelsList[i-1], 3 ])
+                    if pixelVal != -9999:
+                        writer.writerow([ str(coverage.identifier)[:-27], pixelVal, heightLevelsList[i-1], 3 ])
 
         return {
             "processed": output.getvalue()
