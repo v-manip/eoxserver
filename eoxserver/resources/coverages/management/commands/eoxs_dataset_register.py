@@ -110,12 +110,12 @@ class Command(CommandOutputMixIn, BaseCommand):
         ),
 
         make_option("-e", "--extent", dest="extent", 
-            action="callback", callback=_variable_args_cb, default=None,
+            action="store", default=None,
             help=("Override extent.")
         ),
 
         make_option("--size", dest="size", 
-            action="callback", callback=_variable_args_cb,
+            action="store", default=None,
             help=("Override size.")
         ),
 
