@@ -30,6 +30,7 @@
 from optparse import make_option
 from itertools import chain
 
+from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError, BaseCommand
@@ -45,7 +46,7 @@ from eoxserver.backends.access import connect
 from eoxserver.resources.coverages import models
 from eoxserver.resources.coverages.metadata.component import MetadataComponent
 from eoxserver.resources.coverages.management.commands import (
-    CommandOutputMixIn, _variable_args_cb, nested_commit_on_success
+    CommandOutputMixIn, _variable_args_cb
 )
 
 
@@ -186,7 +187,7 @@ class Command(CommandOutputMixIn, BaseCommand):
         collections.
     """
 
-    @nested_commit_on_success
+    @transaction.commit_on_success
     def handle(self, *args, **kwargs):
         with CacheContext() as cache:
             self.handle_with_cache(cache, *args, **kwargs)
