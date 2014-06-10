@@ -202,7 +202,7 @@ class Command(CommandOutputMixIn, BaseCommand):
             try : 
                 ds = models.DatasetSeries.objects.get(identifier=parent_id)
                 parents.append( ds ) 
-            except DatasetSeries.DoesNotExist : 
+            except models.DatasetSeries.DoesNotExist : 
                 msg ="There is no Dataset Series matching the given" \
                         " identifier: '%s' "%parent_id
                 if ignore_missing_parent : 
@@ -352,7 +352,8 @@ class Command(CommandOutputMixIn, BaseCommand):
 
         
     def _get_overrides(self, identifier=None, size=None, extent=None, 
-                       begin_time=None, end_time=None, footprint=None, **kwargs):
+                       begin_time=None, end_time=None, footprint=None, projection=None,
+                       **kwargs):
 
         overrides = {}
 
