@@ -780,7 +780,8 @@ class GetValuesThroughTime(Component):
 
                
                 pixelVal = ds.GetRasterBand(1).ReadAsArray(px,py,1,1)[0,0]
-                writer.writerow([ str(layer.identifier), time, pixelVal])
+                if pixelVal != -9999:
+                    writer.writerow([ str(layer.identifier), time, pixelVal])
 
                 
 
