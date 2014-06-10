@@ -374,6 +374,12 @@ class Command(CommandOutputMixIn, BaseCommand):
         if footprint:
             overrides["footprint"] = GEOSGeometry(footprint)
 
+        if projection:
+            try:
+                overrides["projection"] = int(projection)
+            except ValueError:
+                overrides["projection"] = projection
+
         return overrides
 
 
