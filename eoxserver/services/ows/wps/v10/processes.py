@@ -623,7 +623,7 @@ class GetVolumePixelValues(Component):
                 for i in range(1, ds.RasterCount+1):
                     pixelVal = ds.GetRasterBand(i).ReadAsArray(px,py,1,1)[0,0]
                     if pixelVal != -9999:
-                        if ('GOME-2' in coverage.identifier or 'NPL3Merged' in coverage.identifier or 'REAN' in coverage.identifier):
+                        if ('GOME-2' in coverage.identifier or 'NPL3Merged' in coverage.identifier or 'BASCOE' in coverage.identifier or 'LPL2_MIPAS' in coverage.identifier):
                             pixelVal = pixelVal * 1000000
                         writer.writerow([ str(coverage.identifier)[:-27], pixelVal, heightLevelsList[i-1], 3 ])
 
