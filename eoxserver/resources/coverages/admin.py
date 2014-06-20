@@ -328,4 +328,21 @@ class CubeCoverageAdmin(CoverageAdmin):
     model = models.CubeCoverage
     inlines = (DataItemInline, CollectionInline)
 
+    fieldsets = (
+        (None, {
+            'fields': ('identifier', )
+        }),
+        ('Metadata', {
+            'fields': ('range_type', 
+                       ('size_x', 'size_y'),
+                       ('min_x', 'min_y', 'min_z'),
+                       ('max_x', 'max_y', 'max_z'),
+                       ('srid', 'projection'),
+                       ('begin_time', 'end_time'),
+                       'vertical_cs_id', 'num_height_levels',
+                       'footprint'),
+            'description': 'Geospatial metadata'
+        }),
+    )
+
 admin.site.register(models.CubeCoverage, CubeCoverageAdmin)
