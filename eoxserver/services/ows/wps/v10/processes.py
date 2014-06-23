@@ -365,7 +365,7 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
     size_x = int((bbox[2]-bbox[0])/res_x_master)
     size_y = int((bbox[3]-bbox[1])/res_y_master)
 
-    builder = VRTBuilder(size_x, size_y, (num_bands*2))
+    builder = VRTBuilder(size_x, size_y, (num_bands*2)), master.range_type.bands.all()[0].data_type)
 
     dst_rect_master = (
         int( math.floor((master_bbox[0] - bbox[0]) / res_x_master) ), # x offset
