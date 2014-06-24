@@ -325,7 +325,7 @@ class GetCoverageDifference(Component):
         bbox = map(float, bbox.split(','))
         bbox_poly=Polygon.from_bbox(tuple(bbox))
 
-        coverages_qs =  coverages_qs.filter(footprint__intersects=bbox_poly).order_by('begin_time')
+        coverages_qs =  coverages_qs.filter(footprint__intersects=bbox_poly).order_by('-begin_time')
 
         if len(coverages_qs) < 2:
             raise
