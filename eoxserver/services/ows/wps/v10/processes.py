@@ -625,7 +625,7 @@ class GetVolumePixelValues(Component):
                     if pixelVal != -9999 and pixelVal != -999:
                         if ('GOME-2' in coverage.identifier or 'NPL3Merged' in coverage.identifier or 'BASCOE' in coverage.identifier or 'LPL2_MIPAS' in coverage.identifier):
                             pixelVal = pixelVal * 1000000
-                        writer.writerow([ str(coverage.identifier)[:-27], pixelVal, heightLevelsList[i-1], 3 ])
+                        writer.writerow([ str(coverage.identifier)[:-27], pixelVal, heightLevelsList[i-1], 5 ])
 
         return {
             "processed": output.getvalue()
