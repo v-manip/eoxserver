@@ -1,4 +1,5 @@
 from eoxserver.core import Component, implements 
+from eoxserver.core.decoders import kvp
 from eoxserver.services.auth.interfaces import PolicyDecisionPointInterface
 from eoxserver.services.auth.exceptions import AuthorisationException
 from eoxserver.core.config import get_eoxserver_config
@@ -14,6 +15,12 @@ def enum(**enums):
   
 Decision = enum(DONTKNOW=0, AUTHORIZED=1, DENIED=2) 
 logger = logging.getLogger(__name__)
+
+
+
+class NgeoPEPDecoder(kvp.Decoder):
+  layer = kvp.Parameter("layer", num="?")
+  layers = kvp.Parameter("layers", num="?")
 
 
 ################################################################################
@@ -37,11 +44,11 @@ class NgeoPEP(Component):
       userId = request.META['uid']
     
       #TODO: the browseLayerId must be parsed in future by a specialized eoxserver decoder class
-      browseLayerId = request.GET.get(name__iexact="layer", "empty")
-      logger.debug("the layer id=[%s]" % (browseLayerId))
-      if (browseLayerId == "empty"):
-        browseLayerId = request.GET.get(name__iexact="layers", "empty")
-        logger.debug("the layer id=[%s]" % (browseLayerId))
+      decoder = NgeoPEPDecoder(request.GET)
+      browseLayerId = decoder.layer or decoder.layers
+      
+      if not browseLayerId:
+        raise Exception("No 'layer' or 'layers' parameter present.")
      
       logger.debug("Extracted authorization information: uid=[%s], browse layer id=[%s]" % (userId, browseLayerId))
       
