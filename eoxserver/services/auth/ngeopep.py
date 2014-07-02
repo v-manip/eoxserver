@@ -36,6 +36,9 @@ class NgeoPEP(Component):
   #-------------------------------------------------------------------------------
   def authorize(self, request):
 
+    if request.method == "POST":
+      return True
+
     try:
       #measure the process    
       timer = AuthTimer()
