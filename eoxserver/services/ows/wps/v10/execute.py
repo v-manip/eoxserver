@@ -353,7 +353,7 @@ def parse_response_document_kvp(raw_string):
 
 def parse_raw_response_kvp(raw_string):
     key, value = parse_complex_kvp(raw_string)
-    return RawResponse({key: parse_output(value)})
+    return RawDataOutput({key: parse_output(value)})
 
 
 def parse_response_form_xml(elem):
