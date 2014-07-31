@@ -14,6 +14,10 @@ from osgeo import gdal, gdalconst, osr
 
 import numpy as np 
 
+import matplotlib as mpl
+mpl.use('Agg')
+from matplotlib import pyplot
+
 from django.contrib.gis.geos import Point, MultiPoint, Polygon
 from django.contrib.gis.gdal import SpatialReference
 from django.db.models import Q
@@ -400,74 +404,265 @@ def diff_process(self, master_id, slave_id, bbox, num_bands, crs):
             pix_master = np.dstack((pix_master, builder.dataset.GetRasterBand(i).ReadAsArray()))
             pix_slave = np.dstack((pix_slave, builder.dataset.GetRasterBand(num_bands+i).ReadAsArray()))
 
-    #print pix_master.shape, pix_slave.shape
-
-    #def _diff(a,b):
-    #    c = np.zeros((a.shape[0],a.shape[1]))
-    #    for i in xrange(a.shape[2]):
-    #        c[:,:] += ( a[:,:,i] - b[:,:,i] )**2
-    #    return np.sqrt(c)
 
     def _diff(a,b):
+        d = np.array(a[:,:,0],'float32') - np.array(b[:,:,0],'float32')       
+        return d
 
-        c = np.zeros((a.shape[0],a.shape[1],3))
-
-        d = np.array(a[:,:,0],'float32') - np.array(b[:,:,0],'float32')
-        
-        idx = ( d > 0 ).nonzero()
-        tmp = np.zeros((a.shape[0],a.shape[1]))
-        tmp[idx] = d[idx]
-        c[:,:,0] = tmp
-
-        idx = ( d < 0 ).nonzero()
-        tmp = np.zeros((a.shape[0],a.shape[1]))
-        tmp[idx] = -d[idx]
-        c[:,:,2] = tmp
-        
-        return c
-
+   
     pix_res = _diff(pix_master, pix_slave)
+
+
+    res_max = np.max(pix_res)
+    res_min = np.min(pix_res)
+
+    res_ = max(abs(res_max), abs(res_min))
     
-    max_pix = np.max(pix_res)
-    scale = 254.0/max_pix if max_pix > 0 else 1.0
-
-    pix_res = np.array(pix_res*scale+1,'uint8')
-
     # the output image
-
-    driver_tif = gdal.GetDriverByName('GTiff')
-    driver_png = gdal.GetDriverByName('PNG')
-
     basename = "%s_%s"%( self.identifier,uuid4().hex )
-    filename_tif = "/tmp/%s.tif" %( basename )
     filename_png = "/tmp/%s.png" %( basename )
 
     try:
-     
-        ds_tif = driver_tif.Create(filename_tif,ext.size_x,ext.size_y,3,gdal.GDT_Byte)
-        ds_tif.GetRasterBand(1).WriteArray(pix_res[:,:,0],0,0)
-        ds_tif.GetRasterBand(2).WriteArray(pix_res[:,:,1],0,0)
-        ds_tif.GetRasterBand(3).WriteArray(pix_res[:,:,2],0,0)
+        #fig = pyplot.imshow(pix_res,interpolation='nearest')
+        fig = pyplot.imshow(pix_res,vmin=-res_, vmax=res_, interpolation='nearest')
+        fig.set_cmap('RdBu')
+        fig.write_png(filename_png, True)
 
-        ds_png = driver_png.CreateCopy( filename_png, ds_tif, 0 )
-        
         with open(filename_png) as f:
             output = f.read()
 
     except Exception as e: 
 
-        if os.path.isfile(filename_tif):
-            os.remove(filename_tif)
         if os.path.isfile(filename_png):
             os.remove(filename_png)
 
         raise e
        
     else:
-        os.remove(filename_tif)
         os.remove(filename_png)
 
-    return base64.b64encode(output)
+    #return base64.b64encode(output)
+    return output
+
+
+
+class GetCoverageDifferenceLabel(Component):
+    implements(ProcessInterface)
+
+    identifier = "getCoverageDifferenceLabel"
+    title = "Difference image computation color label creation"
+    description = "Creates color label of difference of two coverages"
+    metadata = ["a", "b"]
+    profiles = ["p", "q"]
+
+    inputs = {
+        "collections": str,
+        "begin_time": datetime,
+        "end_time": datetime,
+        "bbox": str,
+        "crs": int
+    }
+
+    outputs = {
+        "processed": str
+    }
+
+    def execute(self, collections, begin_time, end_time, bbox, crs):
+        """ The main execution function for the process.
+        """
+
+        eo_ids = collections.split(',')
+
+        
+        containment = "overlaps"
+
+        subsets = Subsets((Trim("t", begin_time, end_time),))
+
+
+        if len(eo_ids) == 0:
+            raise
+
+        # fetch a list of all requested EOObjects
+        available_ids = models.EOObject.objects.filter(
+            identifier__in=eo_ids
+        ).values_list("identifier", flat=True)
+
+        # match the requested EOIDs against the available ones. If any are
+        # requested, that are not available, raise and exit.
+        failed = [ eo_id for eo_id in eo_ids if eo_id not in available_ids ]
+        if failed:
+            raise NoSuchDatasetSeriesOrCoverageException(failed)
+
+        collections_qs = subsets.filter(models.Collection.objects.filter(
+            identifier__in=eo_ids
+        ), containment="overlaps")
+
+        # create a set of all indirectly referenced containers by iterating
+        # recursively. The containment is set to "overlaps", to also include 
+        # collections that might have been excluded with "contains" but would 
+        # have matching coverages inserted.
+
+        def recursive_lookup(super_collection, collection_set):
+            sub_collections = models.Collection.objects.filter(
+                collections__in=[super_collection.pk]
+            ).exclude(
+                pk__in=map(lambda c: c.pk, collection_set)
+            )
+            sub_collections = subsets.filter(sub_collections, "overlaps")
+
+            # Add all to the set
+            collection_set |= set(sub_collections)
+
+            for sub_collection in sub_collections:
+                recursive_lookup(sub_collection, collection_set)
+
+        collection_set = set(collections_qs)
+        for collection in set(collection_set):
+            recursive_lookup(collection, collection_set)
+
+        collection_pks = map(lambda c: c.pk, collection_set)
+
+        # Get all either directly referenced coverages or coverages that are
+        # within referenced containers. Full subsetting is applied here.
+
+        coverages_qs = subsets.filter(models.Coverage.objects.filter(
+            Q(identifier__in=eo_ids) | Q(collections__in=collection_pks)
+        ), containment=containment)
+
+
+        #for coverage in coverages_qs:
+        bbox = map(float, bbox.split(','))
+        bbox_poly=Polygon.from_bbox(tuple(bbox))
+
+        coverages_qs =  coverages_qs.filter(footprint__intersects=bbox_poly).order_by('-begin_time')
+
+        if len(coverages_qs) < 2:
+            raise
+
+
+        return {
+            "processed": create_diff_label(self, coverages_qs[0].identifier, coverages_qs[len(coverages_qs)-1].identifier, bbox, 1, crs)
+        }
+
+
+def create_diff_label(self, master_id, slave_id, bbox, num_bands, crs):
+    """ The main execution function for the process.
+    """
+
+    #srid = crss.parseEPSGCode(str(crs), (crss.fromShortCode, crss.fromURN, crss.fromURL))
+
+    master = models.RectifiedDataset.objects.get(identifier=master_id)
+    slave = models.RectifiedDataset.objects.get(identifier=slave_id)
+
+    filename_master = connect(master.data_items.get(semantic__startswith="bands"))
+    filename_slave = connect(slave.data_items.get(semantic__startswith="bands"))
+
+    ds_master = gdal.Open(filename_master, gdalconst.GA_ReadOnly)
+    ds_slave = gdal.Open(filename_slave, gdalconst.GA_ReadOnly)
+
+    master_bbox = master.footprint.extent
+    slave_bbox = slave.footprint.extent
+
+    res_x_master = (master_bbox[2] - master_bbox[0]) / ds_master.RasterXSize
+    res_y_master = (master_bbox[3] - master_bbox[1]) / ds_master.RasterYSize
+
+    res_x_slave = (slave_bbox[2] - slave_bbox[0]) / ds_slave.RasterXSize
+    res_y_slave = (slave_bbox[3] - slave_bbox[1]) / ds_slave.RasterYSize
+
+    size_x = int((bbox[2]-bbox[0])/res_x_master)
+    size_y = int((bbox[3]-bbox[1])/res_y_master)
+
+    builder = VRTBuilder(size_x, size_y, (num_bands*2), master.range_type.bands.all()[0].data_type)
+
+    dst_rect_master = (
+        int( math.floor((master_bbox[0] - bbox[0]) / res_x_master) ), # x offset
+        int( math.floor((bbox[3] - master_bbox[3]) / res_y_master) ), # y offset
+        ds_master.RasterXSize, # x size
+        ds_master.RasterYSize  # y size
+    )
+
+    dst_rect_slave = (
+        int( math.floor((slave_bbox[0] - bbox[0]) / res_x_slave) ), # x offset
+        int( math.floor((bbox[3] - slave_bbox[3]) / res_y_slave) ), # y offset
+        ds_slave.RasterXSize, # x size
+        ds_slave.RasterYSize  # y size
+    )
+
+    for i in range(1, num_bands+1):
+        builder.add_simple_source(i, str(filename_master), i, src_rect=(0, 0, ds_master.RasterXSize, ds_master.RasterYSize), dst_rect=dst_rect_master)
+        builder.add_simple_source(num_bands+i , str(filename_slave), i, src_rect=(0, 0, ds_slave.RasterXSize, ds_slave.RasterYSize), dst_rect=dst_rect_slave)
+    
+
+    ext = Rect(0,0,size_x, size_y)
+
+    
+    pix_master = builder.dataset.GetRasterBand(1).ReadAsArray()
+    pix_slave = builder.dataset.GetRasterBand(num_bands +1).ReadAsArray()
+
+    if num_bands == 1:
+        pix_master = np.dstack((pix_master, builder.dataset.GetRasterBand(1).ReadAsArray()))
+        pix_slave = np.dstack((pix_slave, builder.dataset.GetRasterBand(2).ReadAsArray()))
+    else:
+        for i in range(2, num_bands+1):
+            pix_master = np.dstack((pix_master, builder.dataset.GetRasterBand(i).ReadAsArray()))
+            pix_slave = np.dstack((pix_slave, builder.dataset.GetRasterBand(num_bands+i).ReadAsArray()))
+
+
+    def _diff(a,b):
+        d = np.array(a[:,:,0],'float32') - np.array(b[:,:,0],'float32')
+        return d
+
+    pix_res = _diff(pix_master, pix_slave)
+    
+    res_max = np.max(pix_res)
+    res_min = np.min(pix_res)
+
+    
+    # Make a figure and axes with dimensions as desired.
+    fig = pyplot.figure(figsize=(8,1))
+    fig.patch.set_alpha(0.8)
+    ax1 = fig.add_axes([0.05, 0.80, 0.9, 0.15])
+
+    def savefig_pix(fig,fname,width,height,dpi=100):
+        rdpi = 1.0/float(dpi)  
+        fig.set_size_inches(width*rdpi,height*rdpi)
+        fig.savefig(fname,dpi=dpi)
+
+    # Set the colormap and norm to correspond to the data for which
+    # the colorbar will be used.
+    cmap = mpl.cm.RdBu
+    #norm = mpl.colors.Normalize(vmin=res_min, vmax=res_max)
+    res_ = max(abs(res_max), abs(res_min))
+    norm = mpl.colors.Normalize(vmin=-res_, vmax=res_)
+
+    cb1 = mpl.colorbar.ColorbarBase(ax1, cmap=cmap,
+                                       norm=norm,
+                                       orientation='horizontal')
+    cb1.set_label('Some Units')
+
+
+    # the output image
+    basename = "%s_%s"%( self.identifier,uuid4().hex )
+    filename_png = "/tmp/%s.png" %( basename )
+
+    try:
+     
+        fig.savefig(filename_png, dpi=80)
+
+        with open(filename_png) as f:
+            output = f.read()
+
+    except Exception as e: 
+
+        if os.path.isfile(filename_png):
+            os.remove(filename_png)
+
+        raise e
+       
+    else:
+        os.remove(filename_png)
+
+    return output
 
 
 
