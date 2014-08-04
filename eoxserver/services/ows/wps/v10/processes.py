@@ -460,14 +460,15 @@ class GetCoverageDifferenceLabel(Component):
         "begin_time": datetime,
         "end_time": datetime,
         "bbox": str,
-        "crs": int
+        "crs": int,
+        "unit": str,
     }
 
     outputs = {
         "processed": str
     }
 
-    def execute(self, collections, begin_time, end_time, bbox, crs):
+    def execute(self, collections, begin_time, end_time, bbox, crs, unit):
         """ The main execution function for the process.
         """
 
@@ -541,11 +542,11 @@ class GetCoverageDifferenceLabel(Component):
 
 
         return {
-            "processed": create_diff_label(self, coverages_qs[0].identifier, coverages_qs[len(coverages_qs)-1].identifier, bbox, 1, crs)
+            "processed": create_diff_label(self, coverages_qs[0].identifier, coverages_qs[len(coverages_qs)-1].identifier, bbox, 1, crs, unit)
         }
 
 
-def create_diff_label(self, master_id, slave_id, bbox, num_bands, crs):
+def create_diff_label(self, master_id, slave_id, bbox, num_bands, crs, unit):
     """ The main execution function for the process.
     """
 
@@ -621,7 +622,7 @@ def create_diff_label(self, master_id, slave_id, bbox, num_bands, crs):
     # Make a figure and axes with dimensions as desired.
     fig = pyplot.figure(figsize=(8,1))
     fig.patch.set_alpha(0.8)
-    ax1 = fig.add_axes([0.05, 0.80, 0.9, 0.15])
+    ax1 = fig.add_axes([0.05, 0.75, 0.9, 0.15])
 
     def savefig_pix(fig,fname,width,height,dpi=100):
         rdpi = 1.0/float(dpi)  
@@ -638,7 +639,20 @@ def create_diff_label(self, master_id, slave_id, bbox, num_bands, crs):
     cb1 = mpl.colorbar.ColorbarBase(ax1, cmap=cmap,
                                        norm=norm,
                                        orientation='horizontal')
-    cb1.set_label('Some Units')
+    
+    mis = master_id.split("_")
+    master_id_label = " ".join( (mis[0], mis[1], mis[2], isoformat(master.begin_time)) )
+
+    sis = slave_id.split("_")
+    slave_id_label = " ".join( (sis[0], sis[1], sis[2], isoformat(slave.begin_time)) )
+
+
+    if unit:
+        label = "Difference from %s \n to %s; Unit: %s"%(slave_id_label, master_id_label, unit)
+    else:
+        label = "Difference from %s \n to %s"%(slave_id_label, master_id_label)
+
+    cb1.set_label(label)
 
 
     # the output image
