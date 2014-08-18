@@ -13,6 +13,9 @@ from StringIO import StringIO
 from osgeo import gdal, gdalconst, osr
 
 import numpy as np 
+  
+import tempfile
+os.environ['MPLCONFIGDIR'] = tempfile.mkdtemp()
 
 import matplotlib as mpl
 mpl.use('Agg')
